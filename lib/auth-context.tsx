@@ -5,11 +5,13 @@ import { supabase } from './supabase';
 type AuthContextType = {
     session: Session | null;
     loading: boolean;
+    signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType>({
     session: null,
     loading: true,
+    signOut: async () => { },
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -27,14 +29,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const {
             data: { subscription },
         } = supabase.auth.onAuthStateChange((_event, session) => {
+            console.log('🔄 Auth state changed:', _event, !!session);
             setSession(session);
         });
 
         return () => subscription.unsubscribe();
     }, []);
 
+    const signOut = async () => {
+        console.log('🚪 Signing out from auth context...');
+        await supabase.auth.signOut();
+        setSession(null); // Immediately clear the session state
+        console.log('✅ Session cleared');
+    };
+
     return (
-        <AuthContext.Provider value={{ session, loading }}>
+        <AuthContext.Provider value={{ session, loading, signOut }}>
             {children}
         </AuthContext.Provider>
     );
