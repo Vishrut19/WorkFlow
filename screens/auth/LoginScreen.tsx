@@ -39,7 +39,7 @@ export default function LoginScreen() {
                 .from('user_devices')
                 .select('*')
                 .eq('user_id', authData.user.id)
-                .eq('device_id', deviceInfo.deviceId)
+                .eq('device_uuid', deviceInfo.deviceId)
                 .eq('is_active', true);
 
             if (deviceError) throw deviceError;
@@ -49,12 +49,6 @@ export default function LoginScreen() {
                 await supabase.auth.signOut();
                 throw new Error('This device is not authorized. Please contact admin or login from your registered device.');
             }
-
-            // Update last_used_at
-            await supabase
-                .from('user_devices')
-                .update({ last_used_at: new Date().toISOString() })
-                .eq('id', devices[0].id);
 
             // Success - navigation handled by auth context
             router.replace('/');

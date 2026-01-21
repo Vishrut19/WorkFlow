@@ -54,19 +54,63 @@ export default function SignupScreen() {
         setErrors({ name: '', email: '', password: '', confirm: '' });
 
         try {
+            // Clean email
+            const cleanEmail = email.trim().toLowerCase();
+            
+            // Validate email format more strictly
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(cleanEmail)) {
+                throw new Error('Please enter a valid email address.');
+            }
+            
             // Create user account
+            // Note: If email confirmation is enabled in Supabase, you may need to:
+            // 1. Disable it in Supabase Dashboard > Authentication > Settings
+            // 2. Or configure email templates and redirect URLs
             const { data: authData, error: authError } = await supabase.auth.signUp({
-                email: email.trim().toLowerCase(),
+                email: cleanEmail,
                 password,
                 options: {
                     data: {
                         full_name: fullName.trim(),
                         role: 'staff',
                     },
+                    // Disable email redirect if email confirmation is causing issues
+                    // emailRedirectTo: undefined,
                 },
             });
 
-            if (authError) throw authError;
+            if (authError) {
+                // Log the full error for debugging
+                console.error('Supabase Auth Error:', {
+                    message: authError.message,
+                    status: authError.status,
+                    name: authError.name,
+                });
+                
+                // Provide more user-friendly error messages
+                let errorMessage = authError.message;
+                
+                // Handle common Supabase auth errors
+                if (authError.message.includes('already registered') || 
+                    authError.message.includes('already exists') ||
+                    authError.message.includes('User already registered') ||
+                    authError.message.includes('already been registered')) {
+                    errorMessage = 'This email is already registered. Please try logging in instead.';
+                } else if (authError.message.includes('invalid') && authError.message.includes('email')) {
+                    // This often happens when:
+                    // 1. Email confirmation is enabled but not configured
+                    // 2. Email already exists (Supabase sometimes returns "invalid" for existing emails)
+                    // 3. Email domain is blocked
+                    errorMessage = `Email signup failed. This might be because:\n\n• Email confirmation is required but not configured\n• Email already exists (try logging in)\n• Email domain restrictions\n\nError: ${authError.message}\n\nPlease check your Supabase Auth settings or try a different email.`;
+                } else if (authError.message.includes('password')) {
+                    errorMessage = 'Password does not meet requirements. Please use at least 6 characters.';
+                } else if (authError.message.includes('Email rate limit')) {
+                    errorMessage = 'Too many signup attempts. Please wait a moment and try again.';
+                }
+                
+                throw new Error(errorMessage);
+            }
 
             if (!authData.user) {
                 throw new Error('Failed to create account');
@@ -80,30 +124,34 @@ export default function SignupScreen() {
                 .from('user_devices')
                 .insert({
                     user_id: authData.user.id,
-                    device_id: deviceInfo.deviceId,
-                    device_name: deviceInfo.deviceName,
-                    platform: deviceInfo.platform,
-                    brand: deviceInfo.brand,
-                    model_name: deviceInfo.modelName,
+                    device_uuid: deviceInfo.deviceId,
+                    model: deviceInfo.modelName || deviceInfo.deviceName || null,
+                    os_version: deviceInfo.platform || null,
                 });
 
             if (deviceError) {
                 console.error('Device registration error:', deviceError);
             }
 
-            // Create profile in profiles table
+            // Profile should be created automatically by trigger
+            // Wait a moment for trigger to complete, then update with email
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Update profile with email (trigger creates it with phone/email from auth metadata)
             const { error: profileError } = await supabase
                 .from('profiles')
-                .insert({
-                    id: authData.user.id,
+                .update({
                     full_name: fullName.trim(),
                     email: email.trim().toLowerCase(),
                     role: 'staff',
                     is_active: true,
-                });
-
+                })
+                .eq('id', authData.user.id);
+            
             if (profileError) {
-                console.error('Profile creation error:', profileError);
+                console.error('Profile update error:', profileError);
+                // Don't throw - profile might already be correct from trigger
+                // Just log the error
             }
 
             Alert.alert(
@@ -112,7 +160,9 @@ export default function SignupScreen() {
                 [{ text: 'OK', onPress: () => router.replace('/') }]
             );
         } catch (err: any) {
-            Alert.alert('Signup Failed', err.message);
+            console.error('Signup error:', err);
+            const errorMessage = err.message || 'An unexpected error occurred';
+            Alert.alert('Signup Failed', errorMessage);
         } finally {
             setLoading(false);
         }

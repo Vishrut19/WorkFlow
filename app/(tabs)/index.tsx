@@ -11,23 +11,64 @@ export default function HomeScreen() {
   const [loadingProfile, setLoadingProfile] = useState(true);
 
   useEffect(() => {
-    if (session?.user) {
+    // Only load profile after session is confirmed (loading is false) and session exists
+    if (!loading && session?.user) {
       loadProfile();
+    } else if (!loading && !session) {
+      // Session confirmed but no user - reset profile state
+      setProfile(null);
+      setLoadingProfile(false);
     }
-  }, [session]);
+  }, [session, loading]);
 
   const loadProfile = async () => {
+    // Double check session is confirmed and user exists
+    if (!session?.user || loading) {
+      setLoadingProfile(false);
+      return;
+    }
+
+    setLoadingProfile(true);
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', session?.user.id)
-        .single();
+        .eq('id', session.user.id)
+        .maybeSingle(); // Use maybeSingle() instead of single() to handle 0 rows gracefully
 
-      if (error) throw error;
-      setProfile(data);
+      if (error) {
+        console.error('Error loading profile:', error);
+        setProfile(null);
+        return;
+      }
+
+      if (!data) {
+        // Profile doesn't exist - try to create it from auth user data
+        console.log('Profile not found, creating from auth data...');
+        const { data: newProfile, error: createError } = await supabase
+          .from('profiles')
+          .insert({
+            id: session.user.id,
+            full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+            email: session.user.email || null,
+            role: session.user.user_metadata?.role || 'staff',
+            is_active: true,
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error('Error creating profile:', createError);
+          setProfile(null);
+        } else {
+          setProfile(newProfile);
+        }
+      } else {
+        setProfile(data);
+      }
     } catch (error) {
       console.error('Error loading profile:', error);
+      setProfile(null);
     } finally {
       setLoadingProfile(false);
     }
@@ -62,7 +103,7 @@ export default function HomeScreen() {
               Name: {profile.full_name}
             </Text>
             <Text className="text-gray-700 dark:text-gray-300 mb-1">
-              Email: {profile.email || profile.phone}
+              Email: {profile.email || 'Not set'}
             </Text>
             <Text className="text-gray-700 dark:text-gray-300">
               Role: {profile.role}
