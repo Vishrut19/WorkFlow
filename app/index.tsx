@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { History as HistoryIcon } from 'lucide-react-native';
+import { History as HistoryIcon, User as UserIcon } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -488,7 +488,12 @@ export default function HomeScreen() {
         <SafeAreaView className="flex-1 bg-white dark:bg-black" edges={['top', 'left', 'right']}>
             {/* Header with History Icon - Standardized height and padding */}
             <View className="flex-row items-center justify-between px-6 py-4 border-b border-transparent">
-                <View className="flex-1" />
+                <TouchableOpacity
+                    onPress={() => router.push('/profile')}
+                    className="w-10 h-10 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700"
+                >
+                    <UserIcon size={24} color="#6B7280" />
+                </TouchableOpacity>
                 <TouchableOpacity
                     onPress={() => router.push('/history')}
                     className="w-10 h-10 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700"
@@ -516,12 +521,6 @@ export default function HomeScreen() {
                     {renderAttendanceSection()}
                 </View>
 
-                <TouchableOpacity
-                    onPress={handleLogout}
-                    className="mt-8 bg-gray-200 dark:bg-gray-700 px-6 py-3 rounded-lg active:bg-gray-300 dark:active:bg-gray-600 items-center"
-                >
-                    <Text className="text-gray-900 dark:text-white font-semibold">Logout</Text>
-                </TouchableOpacity>
             </ScrollView>
         </SafeAreaView>
     );

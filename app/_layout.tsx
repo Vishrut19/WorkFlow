@@ -121,6 +121,7 @@ function RootLayoutNav() {
     <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="history" />
+      <Stack.Screen name="profile" />
       <Stack.Screen name="auth/login" />
       <Stack.Screen name="auth/signup" />
     </Stack>
