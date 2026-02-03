@@ -14,12 +14,20 @@ function RootLayoutNav() {
   const segments = useSegments();
   const router = useRouter();
   const [isCheckingFirstVisit, setIsCheckingFirstVisit] = useState(true);
+  const [role, setRole] = useState<string | null>(null);
+  const [loadingRole, setLoadingRole] = useState(false);
 
   useEffect(() => {
     const handleRouting = async () => {
       console.log('🔍 Routing check:', { loading, session: !!session, segments });
 
       if (loading) return;
+
+      // Reset role when session changes (logout/login)
+      if (!session) {
+        setRole(null);
+        setLoadingRole(false);
+      }
 
       const inAuthGroup = segments[0] === 'auth';
 
@@ -43,15 +51,30 @@ function RootLayoutNav() {
         }
       } else {
         // Has session - verify device before redirecting or allowing access
-        // BUT: Skip device check if we're on auth pages (signup just completed)
-        // The device will be registered by the signup flow before we leave auth pages
         if (inAuthGroup) {
-          // On auth pages with a session - the signup flow will handle device registration
-          // Wait a moment then redirect to home (signup screen will do device registration)
           console.log('➡️ On auth page with session, waiting for signup to complete...');
-          // Don't do device check here - let the signup process complete first
-          // The user will be redirected to home by the signup alert callback
           return;
+        }
+
+        // Fetch User Role if not already fetched
+        if (!role && !loadingRole) {
+          setLoadingRole(true);
+          try {
+            const { data, error } = await supabase
+              .from('profiles')
+              .select('role')
+              .eq('id', session.user.id)
+              .maybeSingle();
+
+            if (data && !error) {
+              console.log('👤 User role fetched:', data.role);
+              setRole(data.role);
+            }
+          } catch (e) {
+            console.error('Error fetching role:', e);
+          } finally {
+            setLoadingRole(false);
+          }
         }
 
         // Not on auth pages - do device verification
@@ -98,6 +121,16 @@ function RootLayoutNav() {
           }
 
           console.log('✅ Device verified successfully');
+
+          // After device verification, check for role-based redirection
+          if (role === 'manager' && segments[0] !== '(manager)') {
+            console.log('➡️ Redirecting to MANAGER dashboard');
+            router.replace('/(manager)');
+          } else if (role === 'staff' && segments[0] === '(manager)') {
+            console.log('➡️ Staff trying to access manager area, redirecting to STAFF home');
+            router.replace('/');
+          }
+
         } catch (e) {
           console.error('Device check failed', e);
         }
@@ -107,7 +140,7 @@ function RootLayoutNav() {
     };
 
     handleRouting();
-  }, [session, loading, segments]);
+  }, [session, loading, segments, role]);
 
   if (loading || isCheckingFirstVisit) {
     return (
@@ -120,6 +153,7 @@ function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
       <Stack.Screen name="index" />
+      <Stack.Screen name="(manager)" />
       <Stack.Screen name="history" />
       <Stack.Screen name="profile" />
       <Stack.Screen name="auth/login" />

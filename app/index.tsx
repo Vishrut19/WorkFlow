@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { History as HistoryIcon, User as UserIcon } from 'lucide-react-native';
+import { History as HistoryIcon, LogOut, User as UserIcon } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -40,6 +40,14 @@ export default function HomeScreen() {
             setLoadingAttendance(false);
         }
     }, [session, loading]);
+
+    // Role-based redirection for managers
+    useEffect(() => {
+        if (profile?.role === 'manager') {
+            console.log('➡️ Manager detected on staff home, redirecting to MANAGER dashboard');
+            router.replace('/(manager)');
+        }
+    }, [profile]);
 
     // Timer Effect
     useEffect(() => {
@@ -360,8 +368,21 @@ export default function HomeScreen() {
     };
 
     const handleLogout = async () => {
-        await supabase.auth.signOut();
-        router.replace('/auth/login');
+        Alert.alert(
+            'Logout',
+            'Are you sure you want to logout?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Logout',
+                    style: 'destructive',
+                    onPress: async () => {
+                        await supabase.auth.signOut();
+                        router.replace('/auth/login');
+                    }
+                }
+            ]
+        );
     };
 
     if (loading || loadingProfile || loadingAttendance) {
@@ -494,12 +515,20 @@ export default function HomeScreen() {
                 >
                     <UserIcon size={24} color="#6B7280" />
                 </TouchableOpacity>
-                <TouchableOpacity
-                    onPress={() => router.push('/history')}
-                    className="w-10 h-10 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700"
-                >
-                    <HistoryIcon size={24} color="#6B7280" />
-                </TouchableOpacity>
+                <View className="flex-row items-center gap-3">
+                    <TouchableOpacity
+                        onPress={() => router.push('/history')}
+                        className="w-10 h-10 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700"
+                    >
+                        <HistoryIcon size={24} color="#6B7280" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        onPress={handleLogout}
+                        className="w-10 h-10 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700"
+                    >
+                        <LogOut size={22} color="#EF4444" />
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }}>
