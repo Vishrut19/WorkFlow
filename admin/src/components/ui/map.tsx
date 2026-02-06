@@ -28,10 +28,10 @@ const Mapcn = React.forwardRef<any, MapcnProps>(
                 <Map
                     ref={ref}
                     mapStyle={mapStyle}
-                    initialViewState={{
+                    initialViewState={props.initialViewState ?? {
                         latitude: 28.6139,
                         longitude: 77.2090,
-                        zoom: 5,
+                        zoom: 4,
                     }}
                     style={{ width: "100%", height: "100%" }}
                     {...props}

@@ -14,10 +14,9 @@ import {
     TableRow
 } from '@/components/ui/table';
 import { Loader } from '@/components/ui/loader';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { supabase } from '@/lib/supabase';
 import { format } from 'date-fns';
-import { Calendar as CalendarIcon, Download, History, MapPin, Search } from 'lucide-react';
+import { Calendar as CalendarIcon, Download, History, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 export default function AttendanceRecords() {
@@ -58,11 +57,13 @@ export default function AttendanceRecords() {
     const handleDownloadCSV = () => {
         if (filteredRecords.length === 0) return;
 
-        const headers = ['Employee', 'Email', 'Date', 'Check In', 'Check Out', 'Total Minutes', 'Status'];
+        const headers = ['Employee', 'Email', 'Date', 'Check In Location', 'Check Out Location', 'Check In', 'Check Out', 'Total Minutes', 'Status'];
         const rows = filteredRecords.map(r => [
             r.profiles?.full_name,
             r.profiles?.email,
             r.attendance_date,
+            [r.check_in_city, r.check_in_state].filter(Boolean).join(', ') || '-',
+            [r.check_out_city, r.check_out_state].filter(Boolean).join(', ') || '-',
             r.check_in_time ? format(new Date(r.check_in_time), 'HH:mm:ss') : '-',
             r.check_out_time ? format(new Date(r.check_out_time), 'HH:mm:ss') : '-',
             r.total_minutes || 0,
@@ -137,11 +138,10 @@ export default function AttendanceRecords() {
                             <TableHeader>
                                 <TableRow className="border-b border-border/80 bg-muted/40 hover:bg-transparent">
                                     <TableHead className="w-[1%] min-w-[180px] px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Employee</TableHead>
-                                    <TableHead className="w-0 whitespace-nowrap px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Check In</TableHead>
-                                    <TableHead className="w-0 whitespace-nowrap px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Check Out</TableHead>
+                                    <TableHead className="min-w-[140px] px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Check In Location</TableHead>
+                                    <TableHead className="min-w-[140px] px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Check Out Location</TableHead>
                                     <TableHead className="w-0 whitespace-nowrap px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Duration</TableHead>
                                     <TableHead className="w-0 whitespace-nowrap px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</TableHead>
-                                    <TableHead className="w-0 whitespace-nowrap px-2 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">GPS</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -152,18 +152,30 @@ export default function AttendanceRecords() {
                                             <div className="text-xs text-muted-foreground">{record.profiles?.email}</div>
                                         </TableCell>
                                         <TableCell className="px-3 py-3">
-                                            <div className="font-medium text-foreground tabular-nums">
-                                                {record.check_in_time ? format(new Date(record.check_in_time), 'hh:mm a') : '—'}
+                                            <div className="font-medium text-foreground">
+                                                {[record.check_in_city, record.check_in_state].filter(Boolean).length
+                                                    ? [record.check_in_city, record.check_in_state].filter(Boolean).join(', ')
+                                                    : '—'}
                                             </div>
-                                            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Logged in</div>
+                                            {record.check_in_time && (
+                                                <div className="text-[10px] text-muted-foreground mt-0.5">
+                                                    {format(new Date(record.check_in_time), 'hh:mm a')}
+                                                </div>
+                                            )}
                                         </TableCell>
                                         <TableCell className="px-3 py-3">
-                                            <div className="font-medium text-foreground tabular-nums">
-                                                {record.check_out_time ? format(new Date(record.check_out_time), 'hh:mm a') : (
-                                                    <span className="text-emerald-600 dark:text-emerald-400">On duty</span>
-                                                )}
+                                            <div className="font-medium text-foreground">
+                                                {record.check_out_time
+                                                    ? [record.check_out_city, record.check_out_state].filter(Boolean).length
+                                                        ? [record.check_out_city, record.check_out_state].filter(Boolean).join(', ')
+                                                        : '—'
+                                                    : <span className="text-emerald-600 dark:text-emerald-400">On duty</span>}
                                             </div>
-                                            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Logged out</div>
+                                            {record.check_out_time && (
+                                                <div className="text-[10px] text-muted-foreground mt-0.5">
+                                                    {format(new Date(record.check_out_time), 'hh:mm a')}
+                                                </div>
+                                            )}
                                         </TableCell>
                                         <TableCell className="px-3 py-3">
                                             <Badge variant="secondary" className="rounded-md border-0 bg-primary/10 font-mono text-xs font-medium text-primary">
@@ -181,40 +193,11 @@ export default function AttendanceRecords() {
                                                 {record.status || 'Unknown'}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell className="px-2 py-3 text-right">
-                                            <div className="flex items-center justify-end gap-3 text-muted-foreground">
-                                                <TooltipProvider>
-                                                    <Tooltip>
-                                                        <TooltipTrigger asChild>
-                                                            <div className="hover:text-primary transition-colors cursor-pointer p-1.5 rounded-lg hover:bg-primary/10 border border-transparent hover:border-primary/20">
-                                                                <MapPin size={16} />
-                                                            </div>
-                                                        </TooltipTrigger>
-                                                        <TooltipContent className="bg-popover border-border text-popover-foreground">
-                                                            <p className="text-xs">Check-in Location Captured</p>
-                                                        </TooltipContent>
-                                                    </Tooltip>
-
-                                                    {record.check_out_time && (
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <div className="hover:text-destructive transition-colors cursor-pointer p-1.5 rounded-lg hover:bg-destructive/10 border border-transparent hover:border-destructive/20">
-                                                                    <MapPin size={16} />
-                                                                </div>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent className="bg-popover border-border text-popover-foreground">
-                                                                <p className="text-xs">Check-out Location Captured</p>
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    )}
-                                                </TooltipProvider>
-                                            </div>
-                                        </TableCell>
                                     </TableRow>
                                 ))}
                                 {filteredRecords.length === 0 && (
                                     <TableRow className="hover:bg-transparent">
-                                        <TableCell colSpan={6} className="py-12 text-center">
+                                        <TableCell colSpan={5} className="py-12 text-center">
                                             <div className="flex flex-col items-center gap-3">
                                                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/50 ring-1 ring-border/50">
                                                     <History size={24} className="text-muted-foreground" />

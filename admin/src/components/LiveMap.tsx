@@ -5,29 +5,89 @@ import { Mapcn } from '@/components/ui/map';
 import { supabase } from '@/lib/supabase';
 import { format } from 'date-fns';
 import { MapPin } from 'lucide-react';
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Marker, Popup } from 'react-map-gl/maplibre';
 
-interface LiveMapProps {
-    onLocationsUpdated?: (count: number) => void;
+export interface LiveLocation {
+    user_id: string;
+    latitude: number;
+    longitude: number;
+    recorded_at: string;
+    profiles?: { full_name?: string } | null;
 }
 
-export default function LiveMap({ onLocationsUpdated }: LiveMapProps) {
-    const [locations, setLocations] = useState<any[]>([]);
+interface LiveMapProps {
+    onLocationsUpdated?: (locations: LiveLocation[]) => void;
+    selectedUserId?: string | null;
+    onSelectUser?: (userId: string | null) => void;
+}
+
+function getBounds(locations: LiveLocation[]) {
+    if (locations.length === 0) return null;
+    const lats = locations.map(l => l.latitude);
+    const lngs = locations.map(l => l.longitude);
+    const padding = 0.02;
+    return {
+        minLng: Math.min(...lngs) - padding,
+        minLat: Math.min(...lats) - padding,
+        maxLng: Math.max(...lngs) + padding,
+        maxLat: Math.max(...lats) + padding,
+    };
+}
+
+export default function LiveMap({ onLocationsUpdated, selectedUserId, onSelectUser }: LiveMapProps) {
+    const [locations, setLocations] = useState<LiveLocation[]>([]);
     const [loading, setLoading] = useState(true);
-    const [selectedUser, setSelectedUser] = useState<any | null>(null);
+    const [selectedUser, setSelectedUser] = useState<LiveLocation | null>(null);
+    const mapRef = useRef<any>(null);
 
     useEffect(() => {
         loadLocations();
-        const interval = setInterval(loadLocations, 60000); // Poll every minute
+        const interval = setInterval(loadLocations, 60000);
         return () => clearInterval(interval);
     }, []);
 
+    // Sync selection from parent (e.g. list click) and fly to that user
+    useEffect(() => {
+        if (!selectedUserId) {
+            setSelectedUser(null);
+            return;
+        }
+        const loc = locations.find(l => l.user_id === selectedUserId);
+        if (!loc) return;
+        setSelectedUser(loc);
+        const raw = mapRef.current;
+        const map = typeof raw?.getMap === 'function' ? raw.getMap() : raw;
+        if (map?.flyTo) {
+            try {
+                map.flyTo({
+                    center: [loc.longitude, loc.latitude],
+                    zoom: 15,
+                    duration: 600,
+                });
+            } catch (_) {}
+        }
+    }, [selectedUserId, locations]);
+
+    // When no selection, fit bounds to all locations
+    useEffect(() => {
+        if (locations.length === 0 || selectedUserId) return;
+        const raw = mapRef.current;
+        const map = typeof raw?.getMap === 'function' ? raw.getMap() : raw;
+        if (!map?.fitBounds) return;
+        const b = getBounds(locations);
+        if (!b) return;
+        try {
+            map.fitBounds(
+                [[b.minLng, b.minLat], [b.maxLng, b.maxLat]],
+                { padding: 60, maxZoom: 14, duration: 800 }
+            );
+        } catch (_) {}
+    }, [locations, selectedUserId]);
+
     async function loadLocations() {
         try {
-            // Get latest location logs for all users from the last 30 minutes
             const thirtyMinsAgo = new Date(Date.now() - 30 * 60000).toISOString();
-
             const { data: logs, error } = await supabase
                 .from('location_logs')
                 .select(`
@@ -42,21 +102,17 @@ export default function LiveMap({ onLocationsUpdated }: LiveMapProps) {
 
             if (error) throw error;
 
-            // Group by user and take only the latest
-            const uniqueLocations: any[] = [];
-            const processedUsers = new Set();
-
-            logs?.forEach(log => {
-                if (!processedUsers.has(log.user_id)) {
-                    processedUsers.add(log.user_id);
+            const uniqueLocations: LiveLocation[] = [];
+            const seen = new Set<string>();
+            logs?.forEach((log: LiveLocation) => {
+                if (!seen.has(log.user_id)) {
+                    seen.add(log.user_id);
                     uniqueLocations.push(log);
                 }
             });
 
             setLocations(uniqueLocations);
-            if (onLocationsUpdated) {
-                onLocationsUpdated(uniqueLocations.length);
-            }
+            onLocationsUpdated?.(uniqueLocations);
         } catch (error) {
             console.error('Error loading locations:', error);
         } finally {
@@ -73,7 +129,7 @@ export default function LiveMap({ onLocationsUpdated }: LiveMapProps) {
     }
 
     return (
-        <Mapcn>
+        <Mapcn ref={mapRef}>
             {locations.map((loc) => (
                 <Fragment key={loc.user_id}>
                     <Marker
@@ -82,14 +138,15 @@ export default function LiveMap({ onLocationsUpdated }: LiveMapProps) {
                         onClick={e => {
                             e.originalEvent.stopPropagation();
                             setSelectedUser(loc);
+                            onSelectUser?.(loc.user_id);
                         }}
                     >
                         <div className="cursor-pointer group">
-                            <div className="bg-destructive text-destructive-foreground p-1 rounded-full shadow-lg border-2 border-background group-hover:scale-110 transition-transform">
-                                <MapPin size={16} />
+                            <div className="bg-destructive text-destructive-foreground p-1.5 rounded-full shadow-lg border-2 border-background group-hover:scale-110 transition-transform ring-2 ring-destructive/30 animate-[pulse_2s_ease-in-out_infinite]">
+                                <MapPin size={18} />
                             </div>
-                            <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full mb-1 bg-popover text-popover-foreground text-[10px] px-2 py-0.5 rounded border border-border opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-md">
-                                {loc.profiles?.full_name}
+                            <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full mb-1 bg-popover text-popover-foreground text-[10px] px-2 py-1 rounded border border-border opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-md z-10">
+                                {loc.profiles?.full_name ?? 'Unknown'}
                             </div>
                         </div>
                     </Marker>
@@ -97,30 +154,28 @@ export default function LiveMap({ onLocationsUpdated }: LiveMapProps) {
                         <Popup
                             latitude={loc.latitude}
                             longitude={loc.longitude}
-                            anchor="top"
-                            onClose={() => setSelectedUser(null)}
-                            closeButton={false}
-                            className="z-50"
+                            anchor="bottom"
+                            onClose={() => {
+                                setSelectedUser(null);
+                                onSelectUser?.(null);
+                            }}
+                            closeButton={true}
+                            closeOnClick={false}
+                            className="live-map-popup z-50"
                         >
-                            <div className="p-2 min-w-[150px] bg-popover text-popover-foreground rounded-lg shadow-2xl border border-border">
-                                <div className="font-bold text-sm border-b border-border pb-1 mb-2">
-                                    {loc.profiles?.full_name}
+                            <div className="min-w-[220px] bg-card text-card-foreground rounded-xl border border-border shadow-lg overflow-hidden">
+                                <div className="px-4 pt-10 pr-10 pb-3">
+                                    <p className="font-semibold text-base text-foreground truncate">
+                                        {loc.profiles?.full_name ?? 'Unknown'}
+                                    </p>
+                                    <p className="text-sm text-muted-foreground mt-0.5">
+                                        {format(new Date(loc.recorded_at), 'h:mm a')} · Live
+                                    </p>
+                                    <p className="text-[11px] text-muted-foreground/80 mt-2 font-mono tabular-nums">
+                                        {loc.latitude.toFixed(5)}, {loc.longitude.toFixed(5)}
+                                    </p>
                                 </div>
-                                <div className="space-y-1">
-                                    <div className="flex justify-between items-center text-[10px]">
-                                        <span className="text-muted-foreground">Last Seen:</span>
-                                        <span className="text-primary font-mono">
-                                            {format(new Date(loc.recorded_at), 'hh:mm a')}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-[10px]">
-                                        <span className="text-muted-foreground">Status:</span>
-                                        <span className="text-green-500 flex items-center gap-1 font-bold italic">
-                                            <div className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-                                            ACTIVE
-                                        </span>
-                                    </div>
-                                </div>
+                                <div className="h-1 bg-primary/20" aria-hidden />
                             </div>
                         </Popup>
                     )}

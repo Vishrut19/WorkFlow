@@ -92,13 +92,14 @@ export default function DeviceManagement() {
         .eq("id", deviceId);
 
       if (error) throw error;
-      setDevices(
-        devices.map((d) =>
+      setDevices((prev) =>
+        prev.map((d) =>
           d.id === deviceId ? { ...d, is_authorized: !currentStatus } : d,
         ),
       );
-    } catch (error) {
-      console.error("Error updating device:", error);
+    } catch (err: any) {
+      console.error("Error updating device:", err);
+      alert(err?.message || "Failed to update device. You may need admin access.");
     } finally {
       setActionLoading(null);
     }
@@ -230,12 +231,12 @@ export default function DeviceManagement() {
                           </DropdownMenuLabel>
                           <DropdownMenuSeparator className="bg-border" />
                           <DropdownMenuItem
-                            onClick={() =>
+                            onSelect={() => {
                               toggleAuthorization(
                                 device.id,
                                 device.is_authorized,
-                              )
-                            }
+                              );
+                            }}
                             disabled={actionLoading === device.id}
                             className={`cursor-pointer ${device.is_authorized ? "text-red-500 focus:bg-red-500/10" : "text-blue-500 focus:bg-blue-500/10 font-bold"}`}
                           >
