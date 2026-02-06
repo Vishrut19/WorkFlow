@@ -104,10 +104,11 @@ export default function LiveMap({ onLocationsUpdated, selectedUserId, onSelectUs
 
             const uniqueLocations: LiveLocation[] = [];
             const seen = new Set<string>();
-            logs?.forEach((log: LiveLocation) => {
+            logs?.forEach((log: any) => {
                 if (!seen.has(log.user_id)) {
                     seen.add(log.user_id);
-                    uniqueLocations.push(log);
+                    const profile = Array.isArray(log.profiles) ? log.profiles[0] : log.profiles;
+                    uniqueLocations.push({ ...log, profiles: profile ?? null });
                 }
             });
 
