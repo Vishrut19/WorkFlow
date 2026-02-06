@@ -181,13 +181,46 @@ export default function ManagerDashboard() {
     };
 
     const getLocation = async () => {
-        let { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-            Alert.alert('Permission denied');
+        try {
+            // Check if location services are enabled
+            const isEnabled = await Location.hasServicesEnabledAsync();
+            if (!isEnabled) {
+                Alert.alert(
+                    'Location Services Disabled',
+                    'Please enable location services in your device settings to check in.',
+                    [{ text: 'OK' }]
+                );
+                return null;
+            }
+
+            // Request foreground permissions
+            let { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert(
+                    'Permission Denied',
+                    'Location permission is required to check in. Please grant location access in app settings.',
+                    [{ text: 'OK' }]
+                );
+                return null;
+            }
+
+            // Get current location
+            const location = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.High,
+                timeInterval: 5000,
+                distanceInterval: 0,
+            });
+
+            return { lat: location.coords.latitude, lng: location.coords.longitude };
+        } catch (error: any) {
+            console.error('Location error:', error);
+            Alert.alert(
+                'Location Error',
+                'Unable to get your current location. Please ensure location services are enabled and try again.',
+                [{ text: 'OK' }]
+            );
             return null;
         }
-        let location = await Location.getCurrentPositionAsync({});
-        return { lat: location.coords.latitude, lng: location.coords.longitude };
     };
 
     const handleCheckIn = async () => {
