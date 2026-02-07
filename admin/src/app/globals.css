@@ -134,32 +134,22 @@
   }
 }
 
-/* Live map popup – card-style tooltip (MapLibre uses maplibregl- prefix) */
-.live-map-popup.mapboxgl-popup .mapboxgl-popup-content,
-.live-map-popup.maplibregl-popup .maplibregl-popup-content {
-  padding: 0;
-  border-radius: 0.75rem;
-  overflow: visible;
-  box-shadow: 0 10px 40px -10px rgb(0 0 0 / 0.15), 0 0 0 1px var(--border);
+/* Google Maps InfoWindow overrides */
+.gm-style-iw.gm-style-iw-c {
+  border-radius: 14px !important;
+  padding: 0 !important;
+  box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04) !important;
 }
-.live-map-popup.mapboxgl-popup .mapboxgl-popup-close-button,
-.live-map-popup.maplibregl-popup .maplibregl-popup-close-button {
-  font-size: 1.25rem;
-  padding: 0.5rem;
-  color: var(--muted-foreground);
-  right: 0.25rem;
-  top: 0.25rem;
-  z-index: 10;
+.gm-style-iw-d {
+  overflow: hidden !important;
+  padding: 0 !important;
 }
-.live-map-popup.mapboxgl-popup .mapboxgl-popup-close-button:hover,
-.live-map-popup.maplibregl-popup .maplibregl-popup-close-button:hover {
-  color: var(--foreground);
+/* Hide the default close button — we render our own */
+.gm-style-iw button.gm-ui-hover-effect {
+  display: none !important;
 }
-.live-map-popup.mapboxgl-popup .mapboxgl-popup-tip,
-.live-map-popup.maplibregl-popup .maplibregl-popup-tip {
-  border-top-color: var(--card);
-}
-.dark .live-map-popup.mapboxgl-popup .mapboxgl-popup-content,
-.dark .live-map-popup.maplibregl-popup .maplibregl-popup-content {
-  box-shadow: 0 10px 40px -10px rgb(0 0 0 / 0.4), 0 0 0 1px var(--border);
+/* Clean up the arrow */
+.gm-style-iw-tc::after {
+  background: white !important;
+  box-shadow: none !important;
 }

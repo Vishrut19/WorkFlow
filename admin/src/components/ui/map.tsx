@@ -1,47 +1,58 @@
 "use client"
 
-import "maplibre-gl/dist/maplibre-gl.css"
-import { useTheme } from "next-themes"
-import * as React from "react"
-import Map, { MapProps } from "react-map-gl/maplibre"
-
 import { cn } from "@/lib/utils"
+import { APIProvider, Map } from "@vis.gl/react-google-maps"
+import * as React from "react"
 
-const MAP_STYLES = {
-  light: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
-  dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
-} as const
+const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ""
 
-interface MapcnProps extends MapProps {
-    className?: string
-    children?: React.ReactNode
+// India-focused default view
+const DEFAULT_CENTER = { lat: 22.5, lng: 82.0 }
+const DEFAULT_ZOOM = 5
+
+// India bounds for restriction
+const INDIA_BOUNDS = {
+    north: 37.5,
+    south: 6.5,
+    east: 97.5,
+    west: 68.0,
 }
 
-const Mapcn = React.forwardRef<any, MapcnProps>(
-    ({ className, children, mapStyle: mapStyleProp, ...props }, ref) => {
-        const { resolvedTheme } = useTheme()
-        const isDark = resolvedTheme === "dark"
-        const mapStyle = mapStyleProp ?? (isDark ? MAP_STYLES.dark : MAP_STYLES.light)
+export const LIVE_MAP_ID = "live-team-map"
 
-        return (
-            <div className={cn("relative w-full h-full overflow-hidden rounded-xl border border-border shadow-sm", className)}>
+interface GoogleMapProps {
+    className?: string
+    children?: React.ReactNode
+    defaultCenter?: google.maps.LatLngLiteral
+    defaultZoom?: number
+}
+
+function GoogleMapWrapper({ className, children, defaultCenter, defaultZoom }: GoogleMapProps) {
+    return (
+        <div className={cn("relative w-full h-full overflow-hidden rounded-xl border border-border shadow-sm", className)}>
+            <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
                 <Map
-                    ref={ref}
-                    mapStyle={mapStyle}
-                    initialViewState={props.initialViewState ?? {
-                        latitude: 28.6139,
-                        longitude: 77.2090,
-                        zoom: 4,
+                    id={LIVE_MAP_ID}
+                    defaultCenter={defaultCenter ?? DEFAULT_CENTER}
+                    defaultZoom={defaultZoom ?? DEFAULT_ZOOM}
+                    gestureHandling="greedy"
+                    disableDefaultUI={false}
+                    zoomControl={true}
+                    mapTypeControl={false}
+                    streetViewControl={false}
+                    fullscreenControl={true}
+                    restriction={{
+                        latLngBounds: INDIA_BOUNDS,
+                        strictBounds: false,
                     }}
+                    minZoom={4}
                     style={{ width: "100%", height: "100%" }}
-                    {...props}
                 >
                     {children}
                 </Map>
-            </div>
-        )
-    }
-)
-Mapcn.displayName = "Mapcn"
+            </APIProvider>
+        </div>
+    )
+}
 
-export { Mapcn }
+export { GoogleMapWrapper as Mapcn }
