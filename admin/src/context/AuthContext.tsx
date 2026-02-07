@@ -2,7 +2,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { Session, User } from '@supabase/supabase-js';
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 interface AuthContextType {
     user: User | null;
@@ -15,7 +15,7 @@ const AuthContext = createContext<AuthContextType>({
     user: null,
     session: null,
     loading: true,
-    signOut: async () => { },
+    signOut: async () => {},
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -24,32 +24,38 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Get initial session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            setUser(session?.user ?? null);
+        let mounted = true;
+        supabase.auth.getSession().then(({ data: { session: s } }) => {
+            if (!mounted) return;
+            setSession(s);
+            setUser(s?.user ?? null);
             setLoading(false);
+        }).catch(() => {
+            if (mounted) setLoading(false);
         });
 
-        // Listen for changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setSession(session);
-            setUser(session?.user ?? null);
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+            if (!mounted) return;
+            setSession(s);
+            setUser(s?.user ?? null);
             setLoading(false);
         });
-
-        return () => subscription.unsubscribe();
+        return () => {
+            mounted = false;
+            subscription.unsubscribe();
+        };
     }, []);
 
-    const signOut = async () => {
+    const signOut = useCallback(async () => {
         await supabase.auth.signOut();
-    };
+    }, []);
 
-    return (
-        <AuthContext.Provider value={{ user, session, loading, signOut }}>
-            {children}
-        </AuthContext.Provider>
+    const value = useMemo(
+        () => ({ user, session, loading, signOut }),
+        [user, session, loading, signOut]
     );
+
+    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => useContext(AuthContext);

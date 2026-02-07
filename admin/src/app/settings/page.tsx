@@ -8,53 +8,43 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/context/AuthContext';
+import { getCached, setCached, CACHE_KEYS } from '@/lib/data-cache';
 import { supabase } from '@/lib/supabase';
-import {
-    Bell,
-    Globe,
-    Lock,
-    Save,
-    Settings,
-    Shield,
-    User
-} from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Bell, Globe, Lock, Save, Settings, Shield, User } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+
+const EMPTY_PROFILE = { full_name: '', email: '', role: '' };
 
 export default function SettingsPage() {
     const { user } = useAuth();
     const [loading, setLoading] = useState(false);
-    const [profile, setProfile] = useState({
-        full_name: '',
-        email: '',
-        role: ''
-    });
+    const [profile, setProfile] = useState<{ full_name: string; email: string; role: string }>(EMPTY_PROFILE);
 
-    useEffect(() => {
-        if (user) {
-            loadProfile();
-        }
-    }, [user]);
-
-    async function loadProfile() {
+    const loadProfile = useCallback(async () => {
+        if (!user?.id) return;
         try {
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', user?.id)
-                .single();
-
+            const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).single();
             if (error) throw error;
             if (data) {
-                setProfile({
+                const next = {
                     full_name: data.full_name || '',
                     email: data.email || '',
-                    role: data.role || ''
-                });
+                    role: data.role || '',
+                };
+                setProfile(next);
+                setCached(CACHE_KEYS.PROFILE(user.id), next, 5 * 60 * 1000);
             }
         } catch (error) {
             console.error('Error loading profile:', error);
         }
-    }
+    }, [user?.id]);
+
+    useEffect(() => {
+        if (!user?.id) return;
+        const cached = getCached<typeof EMPTY_PROFILE>(CACHE_KEYS.PROFILE(user.id));
+        if (cached?.email) setProfile(cached);
+        loadProfile();
+    }, [user?.id, loadProfile]);
 
     async function updateProfile() {
         setLoading(true);

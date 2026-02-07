@@ -2,17 +2,11 @@
 
 import DashboardLayout from '@/components/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { getCached, setCached, CACHE_KEYS } from '@/lib/data-cache';
 import { supabase } from '@/lib/supabase';
-import {
-  Clock,
-  MapPin,
-  ShieldCheck,
-  TrendingUp,
-  Users
-} from 'lucide-react';
+import { Clock, MapPin, ShieldCheck, TrendingUp, Users } from 'lucide-react';
 import dynamic from 'next/dynamic';
-import { useEffect, useState } from 'react';
-
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader } from '@/components/ui/loader';
 
 const LiveMap = dynamic(() => import('@/components/LiveMap'), {
@@ -21,58 +15,55 @@ const LiveMap = dynamic(() => import('@/components/LiveMap'), {
     <div className="flex items-center justify-center w-full h-full min-h-[300px] bg-muted/50">
       <Loader size="lg" />
     </div>
-  )
+  ),
 });
 
+type Stats = { totalUsers: number; activeCheckins: number; managedTeams: number; unauthorizedDevices: number };
+
+const INITIAL_STATS: Stats = { totalUsers: 0, activeCheckins: 0, managedTeams: 0, unauthorizedDevices: 0 };
+
 export default function DashboardHome() {
-  const [stats, setStats] = useState({
-    totalUsers: 0,
-    activeCheckins: 0,
-    managedTeams: 0,
-    unauthorizedDevices: 0
-  });
-  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<Stats>(() => getCached<Stats>(CACHE_KEYS.DASHBOARD_STATS) ?? INITIAL_STATS);
+  const [loading, setLoading] = useState(!getCached<Stats>(CACHE_KEYS.DASHBOARD_STATS));
 
-  useEffect(() => {
-    async function loadStats() {
-      try {
-        const { count: usersCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
-
-        const today = new Date().toISOString().split('T')[0];
-        const { count: activeCount } = await supabase
-          .from('attendance')
-          .select('*', { count: 'exact', head: true })
-          .eq('attendance_date', today)
-          .is('check_out_time', null);
-
-        const { count: teamsCount } = await supabase.from('teams').select('*', { count: 'exact', head: true });
-
-        const { count: deviceCount } = await supabase
-          .from('user_devices')
-          .select('*', { count: 'exact', head: true })
-          .eq('is_active', false); // Changed from is_authorized to is_active based on previous schema knowledge
-
-        setStats({
-          totalUsers: usersCount || 0,
-          activeCheckins: activeCount || 0,
-          managedTeams: teamsCount || 0,
-          unauthorizedDevices: deviceCount || 0
-        });
-      } catch (error) {
-        console.error('Error loading stats:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadStats();
+  const loadStats = useCallback(async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const [usersRes, activeRes, teamsRes, devicesRes] = await Promise.all([
+      supabase.from('profiles').select('*', { count: 'exact', head: true }),
+      supabase.from('attendance').select('*', { count: 'exact', head: true }).eq('attendance_date', today).is('check_out_time', null),
+      supabase.from('teams').select('*', { count: 'exact', head: true }),
+      supabase.from('user_devices').select('*', { count: 'exact', head: true }).eq('is_active', false),
+    ]);
+    const next: Stats = {
+      totalUsers: usersRes.count ?? 0,
+      activeCheckins: activeRes.count ?? 0,
+      managedTeams: teamsRes.count ?? 0,
+      unauthorizedDevices: devicesRes.count ?? 0,
+    };
+    setStats(next);
+    setCached(CACHE_KEYS.DASHBOARD_STATS, next, 60 * 1000);
   }, []);
 
-  const statCards = [
-    { name: 'Total Employees', value: stats.totalUsers, icon: Users, color: 'text-blue-500', bg: 'bg-blue-500/10' },
-    { name: 'Currently On Duty', value: stats.activeCheckins, icon: Clock, color: 'text-green-500', bg: 'bg-green-500/10' },
-    { name: 'Managed Teams', value: stats.managedTeams, icon: TrendingUp, color: 'text-purple-500', bg: 'bg-purple-500/10' },
-    { name: 'Inactive Devices', value: stats.unauthorizedDevices, icon: ShieldCheck, color: 'text-red-500', bg: 'bg-red-500/10' },
-  ];
+  useEffect(() => {
+    const cached = getCached<Stats>(CACHE_KEYS.DASHBOARD_STATS);
+    if (cached) {
+      setStats(cached);
+      setLoading(false);
+    }
+    loadStats().catch((e) => console.error('Error loading stats:', e)).finally(() => setLoading(false));
+
+    import('@/components/LiveMap').then((mod) => mod.prefetchMapData?.());
+  }, [loadStats]);
+
+  const statCards = useMemo(
+    () => [
+      { name: 'Total Employees', value: stats.totalUsers, icon: Users, color: 'text-blue-500', bg: 'bg-blue-500/10' },
+      { name: 'Currently On Duty', value: stats.activeCheckins, icon: Clock, color: 'text-green-500', bg: 'bg-green-500/10' },
+      { name: 'Managed Teams', value: stats.managedTeams, icon: TrendingUp, color: 'text-purple-500', bg: 'bg-purple-500/10' },
+      { name: 'Inactive Devices', value: stats.unauthorizedDevices, icon: ShieldCheck, color: 'text-red-500', bg: 'bg-red-500/10' },
+    ],
+    [stats.totalUsers, stats.activeCheckins, stats.managedTeams, stats.unauthorizedDevices]
+  );
 
   return (
     <DashboardLayout>

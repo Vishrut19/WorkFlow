@@ -5,81 +5,98 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Loader } from '@/components/ui/loader';
+import { getCached, setCached, CACHE_KEYS } from '@/lib/data-cache';
 import { supabase } from '@/lib/supabase';
 import { format } from 'date-fns';
 import { Calendar as CalendarIcon, Download, History, Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export default function AttendanceRecords() {
-    const [records, setRecords] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const defaultDate = format(new Date(), 'yyyy-MM-dd');
+    const [dateFilter, setDateFilter] = useState(defaultDate);
+    const cacheKey = CACHE_KEYS.ATTENDANCE(dateFilter);
+    const [records, setRecords] = useState<any[]>(() => getCached<any[]>(cacheKey) ?? []);
+    const [loading, setLoading] = useState(!getCached<any[]>(cacheKey));
     const [searchQuery, setSearchQuery] = useState('');
-    const [dateFilter, setDateFilter] = useState(format(new Date(), 'yyyy-MM-dd'));
 
-    useEffect(() => {
-        loadRecords();
-    }, [dateFilter]);
-
-    async function loadRecords() {
-        setLoading(true);
+    const loadRecords = useCallback(async () => {
+        const cached = getCached<any[]>(cacheKey);
+        if (!cached?.length) setLoading(true);
         try {
             const { data, error } = await supabase
                 .from('attendance')
-                .select(`
-          *,
-          profiles:user_id (full_name, email)
-        `)
+                .select('*, profiles:user_id (full_name, email)')
                 .eq('attendance_date', dateFilter)
                 .order('check_in_time', { ascending: false });
-
             if (error) throw error;
-            setRecords(data || []);
+            const list = data ?? [];
+            setRecords(list);
+            setCached(cacheKey, list, 60 * 1000);
         } catch (error) {
             console.error('Error loading records:', error);
         } finally {
             setLoading(false);
         }
-    }
+    }, [dateFilter, cacheKey]);
 
-    const filteredRecords = records.filter(record =>
-        record.profiles?.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    useEffect(() => {
+        const cached = getCached<any[]>(cacheKey);
+        setRecords(cached ?? []);
+        setLoading(!cached?.length);
+        loadRecords();
+    }, [loadRecords, cacheKey]);
+
+    const filteredRecords = useMemo(() => {
+        const q = searchQuery.toLowerCase().trim();
+        if (!q) return records;
+        return records.filter((r) => r.profiles?.full_name?.toLowerCase().includes(q));
+    }, [records, searchQuery]);
+
+    const escapeCsvField = (val: unknown): string => {
+        const s = val == null ? '' : String(val);
+        if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+            return '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+    };
 
     const handleDownloadCSV = () => {
         if (filteredRecords.length === 0) return;
 
-        const headers = ['Employee', 'Email', 'Date', 'Check In Location', 'Check Out Location', 'Check In', 'Check Out', 'Total Minutes', 'Status'];
-        const rows = filteredRecords.map(r => [
-            r.profiles?.full_name,
-            r.profiles?.email,
-            r.attendance_date,
-            [r.check_in_city, r.check_in_state].filter(Boolean).join(', ') || '-',
-            [r.check_out_city, r.check_out_state].filter(Boolean).join(', ') || '-',
-            r.check_in_time ? format(new Date(r.check_in_time), 'HH:mm:ss') : '-',
-            r.check_out_time ? format(new Date(r.check_out_time), 'HH:mm:ss') : '-',
-            r.total_minutes || 0,
-            r.status
+        const formatHoursMinutes = (totalMinutes: number | null | undefined): string => {
+            const mins = totalMinutes ?? 0;
+            if (mins <= 0) return '0h 0m';
+            const h = Math.floor(mins / 60);
+            const m = mins % 60;
+            return `${h}h ${m}m`;
+        };
+
+        const headers = ['Employee', 'Email', 'Date', 'Check In Location', 'Check Out Location', 'Check In', 'Check Out', 'Total Time', 'Status'];
+        const rows = filteredRecords.map((r) => [
+            escapeCsvField(r.profiles?.full_name ?? ''),
+            escapeCsvField(r.profiles?.email ?? ''),
+            escapeCsvField(r.attendance_date),
+            escapeCsvField([r.check_in_city, r.check_in_state].filter(Boolean).join(', ') || '-'),
+            escapeCsvField([r.check_out_city, r.check_out_state].filter(Boolean).join(', ') || '-'),
+            escapeCsvField(r.check_in_time ? format(new Date(r.check_in_time), 'HH:mm:ss') : '-'),
+            escapeCsvField(r.check_out_time ? format(new Date(r.check_out_time), 'HH:mm:ss') : '-'),
+            escapeCsvField(formatHoursMinutes(r.total_minutes)),
+            escapeCsvField(r.status ?? ''),
         ]);
 
-        const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
+        const csvContent = [headers.map(escapeCsvField), ...rows].map((row) => row.join(',')).join('\r\n');
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
-        link.setAttribute("href", url);
-        link.setAttribute("download", `attendance_${dateFilter}.csv`);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `attendance_${dateFilter}.csv`);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     return (

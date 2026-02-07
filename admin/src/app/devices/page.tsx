@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { getCached, setCached, CACHE_KEYS } from "@/lib/data-cache";
 import { supabase } from "@/lib/supabase";
 import { format } from "date-fns";
 import {
@@ -32,9 +33,9 @@ import {
   ShieldAlert,
   ShieldCheck,
   Smartphone,
-  XCircle
+  XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 // Helper function to determine device type
 const getDeviceType = (deviceName: string | null): "mobile" | "computer" => {
@@ -54,34 +55,32 @@ const getDeviceType = (deviceName: string | null): "mobile" | "computer" => {
 };
 
 export default function DeviceManagement() {
-  const [devices, setDevices] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [devices, setDevices] = useState<any[]>(() => getCached<any[]>(CACHE_KEYS.DEVICES) ?? []);
+  const [loading, setLoading] = useState(!getCached<any[]>(CACHE_KEYS.DEVICES)?.length);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadDevices();
-  }, []);
-
-  async function loadDevices() {
+  const loadDevices = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("user_devices")
-        .select(
-          `
-          *,
-          profiles:user_id (full_name, email)
-        `,
-        )
+        .select("*, profiles:user_id (full_name, email)")
         .order("created_at", { ascending: false });
-
       if (error) throw error;
-      setDevices(data || []);
+      const list = data ?? [];
+      setDevices(list);
+      setCached(CACHE_KEYS.DEVICES, list, 90 * 1000);
     } catch (error) {
       console.error("Error loading devices:", error);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    const cached = getCached<any[]>(CACHE_KEYS.DEVICES);
+    if (cached?.length) setDevices(cached);
+    loadDevices();
+  }, [loadDevices]);
 
   async function toggleAuthorization(deviceId: string, currentStatus: boolean) {
     setActionLoading(deviceId);

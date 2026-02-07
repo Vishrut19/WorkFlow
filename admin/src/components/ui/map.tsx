@@ -2,27 +2,19 @@
 
 import { cn } from "@/lib/utils"
 import { APIProvider, Map } from "@vis.gl/react-google-maps"
-import * as React from "react"
+import type { ReactNode } from "react"
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ""
 
-// India-focused default view
 const DEFAULT_CENTER = { lat: 22.5, lng: 82.0 }
 const DEFAULT_ZOOM = 5
-
-// India bounds for restriction
-const INDIA_BOUNDS = {
-    north: 37.5,
-    south: 6.5,
-    east: 97.5,
-    west: 68.0,
-}
+const INDIA_BOUNDS = { north: 37.5, south: 6.5, east: 97.5, west: 68.0 }
 
 export const LIVE_MAP_ID = "live-team-map"
 
 interface GoogleMapProps {
     className?: string
-    children?: React.ReactNode
+    children?: ReactNode
     defaultCenter?: google.maps.LatLngLiteral
     defaultZoom?: number
 }

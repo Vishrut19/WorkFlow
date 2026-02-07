@@ -66,7 +66,10 @@ export default function MapPage() {
         });
     };
 
-    const selectedLocation = locations.find(l => l.user_id === selectedUserId);
+    const selectedLocation = useMemo(
+        () => (selectedUserId ? locations.find((l) => l.user_id === selectedUserId) : undefined),
+        [locations, selectedUserId]
+    );
 
     const filteredLocations = useMemo(() => {
         let result = locations.filter(l => activeFilters.has(l.status));

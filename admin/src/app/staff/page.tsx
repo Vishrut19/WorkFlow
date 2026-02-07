@@ -22,44 +22,38 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { getCached, setCached, CACHE_KEYS } from "@/lib/data-cache";
 import { supabase } from "@/lib/supabase";
-import {
-  Mail,
-  MoreVertical,
-  Search,
-  UserCheck,
-  Users,
-  UserX,
-} from "lucide-react";
-import { useEffect, useState } from "react";
+import { Mail, MoreVertical, Search, UserCheck, Users, UserX } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Role = "staff" | "manager" | "admin";
 
 export default function StaffManagement() {
-  const [users, setUsers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [users, setUsers] = useState<any[]>(() => getCached<any[]>(CACHE_KEYS.STAFF_LIST) ?? []);
+  const [loading, setLoading] = useState(!getCached<any[]>(CACHE_KEYS.STAFF_LIST));
   const [searchQuery, setSearchQuery] = useState("");
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadUsers();
-  }, []);
-
-  async function loadUsers() {
+  const loadUsers = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .order("full_name", { ascending: true });
-
+      const { data, error } = await supabase.from("profiles").select("*").order("full_name", { ascending: true });
       if (error) throw error;
-      setUsers(data || []);
+      const list = data ?? [];
+      setUsers(list);
+      setCached(CACHE_KEYS.STAFF_LIST, list, 90 * 1000);
     } catch (error) {
       console.error("Error loading users:", error);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    const cached = getCached<any[]>(CACHE_KEYS.STAFF_LIST);
+    if (cached?.length) setUsers(cached);
+    loadUsers();
+  }, [loadUsers]);
 
   async function updateUserRole(userId: string, newRole: Role) {
     setActionLoadingId(userId);
@@ -101,11 +95,15 @@ export default function StaffManagement() {
     }
   }
 
-  const filteredUsers = users.filter(
-    (user) =>
-      user.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email?.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  const filteredUsers = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return users;
+    return users.filter(
+      (u) =>
+        u.full_name?.toLowerCase().includes(q) ||
+        u.email?.toLowerCase().includes(q)
+    );
+  }, [users, searchQuery]);
 
   const getRoleBadge = (role: string) => {
     switch (role) {

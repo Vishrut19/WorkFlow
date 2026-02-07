@@ -38,6 +38,11 @@ import {
 } from '@/components/ui/sidebar';
 import { useAuth } from '@/context/AuthContext';
 
+// Prefetch map data on hover for instant navigation
+const prefetchMapData = () => {
+    import('@/components/LiveMap').then(mod => mod.prefetchMapData?.());
+};
+
 const navItems = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
     { name: 'Live Team Map', href: '/map', icon: MapIcon },
@@ -82,7 +87,10 @@ export function AppSidebar() {
                                         tooltip={item.name}
                                         className="transition-all duration-200"
                                     >
-                                        <Link href={item.href}>
+                                        <Link 
+                                            href={item.href}
+                                            onMouseEnter={item.href === '/map' ? prefetchMapData : undefined}
+                                        >
                                             <item.icon className="h-4 w-4" />
                                             <span>{item.name}</span>
                                         </Link>

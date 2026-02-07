@@ -56,194 +56,349 @@ async function reverseGeocode(lat: number, lng: number): Promise<string> {
     }
 }
 
+// ============ Caching for instant display ============
+const CACHE_KEY = 'admin_locations_cache';
+const GEOCODE_CACHE_KEY = 'admin_geocode_cache';
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes max staleness
+
+interface LocationCache {
+    data: LiveLocation[];
+    timestamp: number;
+}
+
+let memoryCache: LocationCache | null = null;
+let geocodeMemoryCache: Map<string, string> | null = null;
+
+function getCachedLocations(): LiveLocation[] | null {
+    if (memoryCache && Date.now() - memoryCache.timestamp < CACHE_TTL) {
+        return memoryCache.data;
+    }
+    if (typeof window !== 'undefined') {
+        try {
+            const stored = sessionStorage.getItem(CACHE_KEY);
+            if (stored) {
+                const parsed: LocationCache = JSON.parse(stored);
+                if (Date.now() - parsed.timestamp < CACHE_TTL) {
+                    memoryCache = parsed;
+                    return parsed.data;
+                }
+            }
+        } catch { /* ignore */ }
+    }
+    return null;
+}
+
+function setCachedLocations(data: LiveLocation[]) {
+    const cache: LocationCache = { data, timestamp: Date.now() };
+    memoryCache = cache;
+    if (typeof window !== 'undefined') {
+        try {
+            sessionStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+        } catch { /* ignore */ }
+    }
+}
+
+// Persistent geocode cache (place names rarely change)
+function getGeocodeCache(): Map<string, string> {
+    if (geocodeMemoryCache) return geocodeMemoryCache;
+    geocodeMemoryCache = new Map();
+    if (typeof window !== 'undefined') {
+        try {
+            const stored = sessionStorage.getItem(GEOCODE_CACHE_KEY);
+            if (stored) {
+                const entries: [string, string][] = JSON.parse(stored);
+                geocodeMemoryCache = new Map(entries);
+            }
+        } catch { /* ignore */ }
+    }
+    return geocodeMemoryCache;
+}
+
+function saveGeocodeCache() {
+    if (!geocodeMemoryCache || typeof window === 'undefined') return;
+    try {
+        const entries = Array.from(geocodeMemoryCache.entries()).slice(-100); // keep last 100
+        sessionStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(entries));
+    } catch { /* ignore */ }
+}
+
+// ============ Prefetch for instant map on navigation ============
+let prefetchPromise: Promise<void> | null = null;
+
+export function prefetchMapData() {
+    if (prefetchPromise) return prefetchPromise;
+    if (getCachedLocations()) return Promise.resolve(); // already have fresh data
+
+    prefetchPromise = (async () => {
+        const locations = await fetchLocations();
+        if (locations.length > 0) {
+            // Also prefetch geocoding
+            const cache = getGeocodeCache();
+            const toGeocode = locations.filter(l => {
+                if (l.status === 'offline') return false;
+                const key = `${l.latitude.toFixed(4)}_${l.longitude.toFixed(4)}`;
+                return !cache.has(key);
+            }).slice(0, 5); // prefetch first 5
+
+            await Promise.all(toGeocode.map(async loc => {
+                const key = `${loc.latitude.toFixed(4)}_${loc.longitude.toFixed(4)}`;
+                const name = await reverseGeocode(loc.latitude, loc.longitude);
+                cache.set(key, name);
+            }));
+            saveGeocodeCache();
+        }
+        prefetchPromise = null;
+    })();
+
+    return prefetchPromise;
+}
+
+// Pure data fetcher – no React state, returns data or empty array
+async function fetchLocations(): Promise<LiveLocation[]> {
+    try {
+        const { data: rows, error } = await supabase.rpc('get_admin_locations');
+
+        if (error) {
+            const isMissing = (error as { code?: string }).code === '42883'
+                || (error as { message?: string }).message?.includes('function');
+            if (isMissing) return fetchLocationsFallback();
+            throw error;
+        }
+
+        const locations = (rows || []).map((row: {
+            user_id: string;
+            full_name: string | null;
+            latitude: number;
+            longitude: number;
+            recorded_at: string;
+            check_in_time: string | null;
+            status: LocationStatus;
+        }) => ({
+            user_id: row.user_id,
+            latitude: row.latitude,
+            longitude: row.longitude,
+            recorded_at: row.recorded_at,
+            check_in_time: row.check_in_time ?? undefined,
+            profiles: row.full_name != null ? { full_name: row.full_name } : null,
+            status: row.status,
+        }));
+
+        setCachedLocations(locations);
+        return locations;
+    } catch (err: unknown) {
+        const msg = err && typeof err === 'object' && 'message' in err
+            ? (err as { message: string }).message : String(err ?? 'Unknown');
+        console.error('Error loading locations:', msg);
+        return [];
+    }
+}
+
+async function fetchLocationsFallback(): Promise<LiveLocation[]> {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const today = todayStart.toISOString().split('T')[0];
+    const thirtyMinsAgo = Date.now() - 30 * 60000;
+
+    const { data: logs, error: logsError } = await supabase
+        .from('location_logs')
+        .select('user_id, latitude, longitude, recorded_at, profiles:user_id (full_name)')
+        .gte('recorded_at', todayStart.toISOString())
+        .order('recorded_at', { ascending: false });
+    if (logsError) throw logsError;
+
+    const { data: attendance, error: attError } = await supabase
+        .from('attendance')
+        .select('user_id, check_in_time, profiles:user_id (full_name)')
+        .eq('attendance_date', today)
+        .is('check_out_time', null);
+    if (attError) throw attError;
+
+    const locationMap = new Map<string, LiveLocation>();
+    logs?.forEach((log: any) => {
+        if (!locationMap.has(log.user_id)) {
+            const profile = Array.isArray(log.profiles) ? log.profiles[0] : log.profiles;
+            const recordedTime = new Date(log.recorded_at).getTime();
+            locationMap.set(log.user_id, {
+                ...log, profiles: profile ?? null,
+                status: recordedTime >= thirtyMinsAgo ? 'live' : 'lastSeen',
+            });
+        }
+    });
+    attendance?.forEach((att: any) => {
+        if (!locationMap.has(att.user_id)) {
+            const profile = Array.isArray(att.profiles) ? att.profiles[0] : att.profiles;
+            locationMap.set(att.user_id, {
+                user_id: att.user_id, latitude: 0, longitude: 0,
+                recorded_at: att.check_in_time, check_in_time: att.check_in_time,
+                profiles: profile ?? null, status: 'offline',
+            });
+        }
+    });
+    const all = Array.from(locationMap.values());
+    all.sort((a, b) => {
+        const order: Record<LocationStatus, number> = { live: 0, lastSeen: 1, offline: 2 };
+        return order[a.status] - order[b.status];
+    });
+    setCachedLocations(all);
+    return all;
+}
+
 function LiveMapInner({ onLocationsUpdated, selectedUserId, onSelectUser }: LiveMapProps) {
     const [locations, setLocations] = useState<LiveLocation[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedUser, setSelectedUser] = useState<LiveLocation | null>(null);
     const [showInfoWindow, setShowInfoWindow] = useState(false);
-    const prevSelectedRef = useRef<string | null>(null);
-    const geocodeCacheRef = useRef<Map<string, string>>(new Map());
+
     const locationsRef = useRef<LiveLocation[]>([]);
+    const prevSelectedRef = useRef<string | null>(null);
+    const geocodeBatchRef = useRef(0);
+    const onLocationsUpdatedRef = useRef(onLocationsUpdated);
+    const mapRef = useRef<google.maps.Map | null>(null);
+    const hasFittedRef = useRef(false);
+    const fitAllLocationsRef = useRef<() => void>(() => {});
+
     const map = useMap(LIVE_MAP_ID);
-
+    mapRef.current = map;
     locationsRef.current = locations;
+    onLocationsUpdatedRef.current = onLocationsUpdated;
 
-    useEffect(() => {
-        loadLocations();
-        const interval = setInterval(loadLocations, 60000);
-        return () => clearInterval(interval);
-    }, []);
-
-    const geocodeLocation = useCallback(async (loc: LiveLocation) => {
-        const cacheKey = `${loc.latitude.toFixed(4)}_${loc.longitude.toFixed(4)}`;
-        if (geocodeCacheRef.current.has(cacheKey)) {
-            return geocodeCacheRef.current.get(cacheKey)!;
-        }
-        const name = await reverseGeocode(loc.latitude, loc.longitude);
-        geocodeCacheRef.current.set(cacheKey, name);
-        return name;
-    }, []);
-
-    // Reverse geocode locations that have coordinates
-    useEffect(() => {
-        const locsWithCoords = locations.filter(l => l.status !== 'offline');
-        if (locsWithCoords.length === 0) return;
-        let cancelled = false;
-
-        const geocodeAll = async () => {
-            const updated: LiveLocation[] = [];
-            let changed = false;
-
-            for (const loc of locations) {
-                if (cancelled) return;
-                if (loc.status === 'offline' || loc.placeName) {
-                    updated.push(loc);
-                    continue;
-                }
-                const placeName = await geocodeLocation(loc);
-                updated.push({ ...loc, placeName });
-                changed = true;
-                if (locations.indexOf(loc) < locations.length - 1) {
-                    await new Promise(r => setTimeout(r, 300));
-                }
-            }
-
-            if (!cancelled && changed) {
-                setLocations(updated);
-                onLocationsUpdated?.(updated);
-            }
-        };
-
-        geocodeAll();
-        return () => { cancelled = true; };
-    }, [locations.length]);
-
-    // Fit map to locations with coordinates only (reads latest from ref to avoid effect loops)
     const fitAllLocations = useCallback(() => {
-        if (!map) return;
+        const m = mapRef.current;
+        if (!m) return;
         const withCoords = locationsRef.current.filter(l => l.status !== 'offline');
         if (withCoords.length === 0) return;
         const bounds = new google.maps.LatLngBounds();
-        withCoords.forEach(loc => {
-            bounds.extend({ lat: loc.latitude, lng: loc.longitude });
+        withCoords.forEach(loc => bounds.extend({ lat: loc.latitude, lng: loc.longitude }));
+        m.fitBounds(bounds, { top: 60, bottom: 60, left: 60, right: 60 });
+        google.maps.event.addListenerOnce(m, 'idle', () => {
+            const z = m.getZoom();
+            if (z !== undefined && z !== null && z > 14) m.setZoom(14);
         });
-        map.fitBounds(bounds, { top: 60, bottom: 60, left: 60, right: 60 });
-        google.maps.event.addListenerOnce(map, 'idle', () => {
-            const z = map.getZoom();
-            if (z !== undefined && z !== null && z > 14) map.setZoom(14);
-        });
-    }, [map]);
+    }, []);
+    fitAllLocationsRef.current = fitAllLocations;
 
-    // Fly to selected user or back to overview
+    const geocodeLocations = useCallback(async (locs: LiveLocation[]) => {
+        const batch = ++geocodeBatchRef.current;
+        const cache = getGeocodeCache();
+
+        // First pass: apply cached place names instantly
+        let updated = locs.map(loc => {
+            if (loc.status === 'offline' || loc.placeName) return loc;
+            const cacheKey = `${loc.latitude.toFixed(4)}_${loc.longitude.toFixed(4)}`;
+            const cached = cache.get(cacheKey);
+            return cached ? { ...loc, placeName: cached } : loc;
+        });
+
+        // Update immediately with cached names
+        const hasCachedNames = updated.some((l, i) => l.placeName && !locs[i].placeName);
+        if (hasCachedNames) {
+            setLocations(updated);
+            onLocationsUpdatedRef.current?.(updated);
+        }
+
+        // Find remaining locations that need geocoding
+        const needsGeocode = updated
+            .map((loc, idx) => ({ loc, idx }))
+            .filter(({ loc }) => loc.status !== 'offline' && !loc.placeName);
+
+        if (needsGeocode.length === 0) return;
+
+        // Geocode in parallel batches of 3 (respect Nominatim rate limits)
+        const BATCH_SIZE = 3;
+        for (let i = 0; i < needsGeocode.length; i += BATCH_SIZE) {
+            if (geocodeBatchRef.current !== batch) return;
+
+            const batchItems = needsGeocode.slice(i, i + BATCH_SIZE);
+            const results = await Promise.all(
+                batchItems.map(async ({ loc, idx }) => {
+                    const cacheKey = `${loc.latitude.toFixed(4)}_${loc.longitude.toFixed(4)}`;
+                    const placeName = await reverseGeocode(loc.latitude, loc.longitude);
+                    cache.set(cacheKey, placeName);
+                    return { idx, placeName };
+                })
+            );
+
+            if (geocodeBatchRef.current !== batch) return;
+
+            // Apply results
+            updated = [...updated];
+            results.forEach(({ idx, placeName }) => {
+                updated[idx] = { ...updated[idx], placeName };
+            });
+
+            setLocations(updated);
+            onLocationsUpdatedRef.current?.(updated);
+
+            // Small delay between batches to respect rate limits
+            if (i + BATCH_SIZE < needsGeocode.length) {
+                await new Promise(r => setTimeout(r, 150));
+            }
+        }
+
+        // Persist geocode cache
+        saveGeocodeCache();
+    }, []); // stable – reads everything from refs
+
+    // ---- Effect 1: load data once on mount + 60s interval. No deps → never re-runs. ----
     useEffect(() => {
-        if (!map) return;
+        let mounted = true;
+        const cached = getCachedLocations();
+
+        if (cached && cached.length > 0) {
+            setLocations(cached);
+            onLocationsUpdatedRef.current?.(cached);
+            setLoading(false);
+            if (!hasFittedRef.current) {
+                hasFittedRef.current = true;
+                setTimeout(() => fitAllLocationsRef.current(), 50);
+            }
+        }
+
+        async function load(isInitial: boolean) {
+            const allLocations = await fetchLocations();
+            if (!mounted) return;
+            const hasNewData = !cached?.length || allLocations.length !== cached.length ||
+                allLocations.some((loc, i) => loc.recorded_at !== cached[i]?.recorded_at);
+
+            if (hasNewData || isInitial) {
+                setLocations(allLocations);
+                onLocationsUpdatedRef.current?.(allLocations);
+                setLoading(false);
+                if (!hasFittedRef.current && allLocations.length > 0) {
+                    hasFittedRef.current = true;
+                    setTimeout(() => fitAllLocationsRef.current(), 100);
+                }
+                geocodeLocations(allLocations);
+            }
+        }
+
+        load(true);
+        const interval = setInterval(() => load(false), 60000);
+        return () => { mounted = false; clearInterval(interval); };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps -- intentional: run once, use refs inside
+
+    // ---- Effect 2: selection only. Depends only on selectedUserId. ----
+    useEffect(() => {
+        const m = mapRef.current;
         const wasSelected = prevSelectedRef.current;
         prevSelectedRef.current = selectedUserId ?? null;
 
         if (!selectedUserId) {
             setSelectedUser(null);
             setShowInfoWindow(false);
-            if (wasSelected) {
-                fitAllLocations();
-            }
+            if (wasSelected && m) fitAllLocationsRef.current();
             return;
         }
 
-        const loc = locations.find(l => l.user_id === selectedUserId);
-        if (!loc || loc.status === 'offline') return;
+        const loc = locationsRef.current.find(l => l.user_id === selectedUserId);
+        if (!loc || loc.status === 'offline' || !m) return;
         setSelectedUser(loc);
         setShowInfoWindow(true);
-        map.panTo({ lat: loc.latitude, lng: loc.longitude });
-        map.setZoom(16);
-    }, [selectedUserId, locations, map, fitAllLocations]);
+        m.panTo({ lat: loc.latitude, lng: loc.longitude });
+        m.setZoom(16);
+    }, [selectedUserId]);
 
-    // On initial load or "Show All", fit to all locations (do not depend on locations ref to avoid loop)
-    useEffect(() => {
-        if (locations.length === 0 || selectedUserId) return;
-        fitAllLocations();
-    }, [locations.length, selectedUserId, fitAllLocations]);
-
-    async function loadLocations() {
-        try {
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
-            const today = todayStart.toISOString().split('T')[0];
-            const thirtyMinsAgo = Date.now() - 30 * 60000;
-
-            // 1. Fetch today's location logs
-            const { data: logs, error: logsError } = await supabase
-                .from('location_logs')
-                .select(`
-                    user_id,
-                    latitude,
-                    longitude,
-                    recorded_at,
-                    profiles:user_id (full_name)
-                `)
-                .gte('recorded_at', todayStart.toISOString())
-                .order('recorded_at', { ascending: false });
-
-            if (logsError) throw logsError;
-
-            // 2. Fetch today's attendance (checked in, not yet checked out)
-            const { data: attendance, error: attError } = await supabase
-                .from('attendance')
-                .select(`
-                    user_id,
-                    check_in_time,
-                    profiles:user_id (full_name)
-                `)
-                .eq('attendance_date', today)
-                .is('check_out_time', null);
-
-            if (attError) throw attError;
-
-            // 3. Build latest location per user from logs
-            const locationMap = new Map<string, LiveLocation>();
-            logs?.forEach((log: any) => {
-                if (!locationMap.has(log.user_id)) {
-                    const profile = Array.isArray(log.profiles) ? log.profiles[0] : log.profiles;
-                    const recordedTime = new Date(log.recorded_at).getTime();
-                    locationMap.set(log.user_id, {
-                        ...log,
-                        profiles: profile ?? null,
-                        status: recordedTime >= thirtyMinsAgo ? 'live' : 'lastSeen',
-                    });
-                }
-            });
-
-            // 4. Add offline staff (in attendance but no location logs)
-            attendance?.forEach((att: any) => {
-                if (!locationMap.has(att.user_id)) {
-                    const profile = Array.isArray(att.profiles) ? att.profiles[0] : att.profiles;
-                    locationMap.set(att.user_id, {
-                        user_id: att.user_id,
-                        latitude: 0,
-                        longitude: 0,
-                        recorded_at: att.check_in_time,
-                        check_in_time: att.check_in_time,
-                        profiles: profile ?? null,
-                        status: 'offline',
-                    });
-                }
-            });
-
-            const allLocations = Array.from(locationMap.values());
-
-            // Sort: live first, then lastSeen, then offline
-            allLocations.sort((a, b) => {
-                const order: Record<LocationStatus, number> = { live: 0, lastSeen: 1, offline: 2 };
-                return order[a.status] - order[b.status];
-            });
-
-            setLocations(allLocations);
-            onLocationsUpdated?.(allLocations);
-        } catch (error) {
-            console.error('Error loading locations:', error);
-        } finally {
-            setLoading(false);
-        }
-    }
+    // (data fetching is handled by fetchLocations, defined outside the component)
 
     if (loading && locations.length === 0) {
         return (

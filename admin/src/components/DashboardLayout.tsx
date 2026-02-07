@@ -13,29 +13,24 @@ import {
 import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
 import { Separator } from '@/components/ui/separator';
-import {
-    SidebarInset,
-    SidebarProvider,
-    SidebarTrigger,
-} from '@/components/ui/sidebar';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { useAuth } from '@/context/AuthContext';
 import { LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 
-export default function DashboardLayout({
-    children,
-}: {
-    children: React.ReactNode;
-}) {
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
     const { user, loading, signOut } = useAuth();
     const router = useRouter();
 
     useEffect(() => {
-        if (!loading && !user) {
-            router.push('/login');
-        }
+        if (!loading && !user) router.push('/login');
     }, [user, loading, router]);
+
+    const handleSignOut = useCallback(async () => {
+        if (user) await signOut();
+        router.push('/login');
+    }, [user, signOut, router]);
 
     if (loading) {
         return (
@@ -44,7 +39,6 @@ export default function DashboardLayout({
             </div>
         );
     }
-
     if (!user) return null;
 
     return (
@@ -74,10 +68,7 @@ export default function DashboardLayout({
                         <Button
                             variant="ghost"
                             size="icon"
-                            onClick={async () => {
-                                await user && signOut(); // Only sign out if user exists
-                                router.push('/login');
-                            }}
+                            onClick={handleSignOut}
                             className="h-9 w-9 text-red-400 hover:text-red-300 hover:bg-red-950/30"
                             title="Sign Out"
                         >

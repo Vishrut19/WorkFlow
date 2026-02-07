@@ -3,61 +3,57 @@
 import DashboardLayout from '@/components/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { getCached, setCached, CACHE_KEYS } from '@/lib/data-cache';
 import { supabase } from '@/lib/supabase';
-import {
-    BarChart3,
-    Download,
-    FileSpreadsheet,
-    PieChart,
-    TrendingUp
-} from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { BarChart3, Download, FileSpreadsheet, PieChart, TrendingUp } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+
+const INITIAL_STATS = { totalAttendance: 0, presentRate: 0, lateRate: 0, averageHours: 0 };
 
 export default function ReportsPage() {
-    const [loading, setLoading] = useState(true);
-    const [reportStats, setReportStats] = useState({
-        totalAttendance: 0,
-        presentRate: 0,
-        lateRate: 0,
-        averageHours: 0
-    });
+    const [loading, setLoading] = useState(!getCached<typeof INITIAL_STATS>(CACHE_KEYS.REPORTS));
+    const [reportStats, setReportStats] = useState<typeof INITIAL_STATS>(
+        () => getCached<typeof INITIAL_STATS>(CACHE_KEYS.REPORTS) ?? INITIAL_STATS
+    );
+
+    const loadReportData = useCallback(async () => {
+        try {
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            const startDate = thirtyDaysAgo.toISOString().split('T')[0];
+
+            const { data, error } = await supabase
+                .from('attendance')
+                .select('status, total_minutes')
+                .gte('attendance_date', startDate);
+            if (error) throw error;
+
+            if (data?.length) {
+                const total = data.length;
+                const present = data.filter((a) => a.status === 'present').length;
+                const late = data.filter((a) => a.status === 'late').length;
+                const totalMinutes = data.reduce((acc, curr) => acc + (curr.total_minutes || 0), 0);
+                const next = {
+                    totalAttendance: total,
+                    presentRate: Math.round((present / total) * 100),
+                    lateRate: Math.round((late / total) * 100),
+                    averageHours: Math.round((totalMinutes / total) / 60 * 10) / 10,
+                };
+                setReportStats(next);
+                setCached(CACHE_KEYS.REPORTS, next, 2 * 60 * 1000);
+            }
+        } catch (error) {
+            console.error('Error loading report data:', error);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
-        async function loadReportData() {
-            try {
-                // Fetch attendance stats for the last 30 days
-                const thirtyDaysAgo = new Date();
-                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-                const startDate = thirtyDaysAgo.toISOString().split('T')[0];
-
-                const { data, error } = await supabase
-                    .from('attendance')
-                    .select('status, total_minutes')
-                    .gte('attendance_date', startDate);
-
-                if (error) throw error;
-
-                if (data && data.length > 0) {
-                    const total = data.length;
-                    const present = data.filter(a => a.status === 'present').length;
-                    const late = data.filter(a => a.status === 'late').length;
-                    const totalMinutes = data.reduce((acc, curr) => acc + (curr.total_minutes || 0), 0);
-
-                    setReportStats({
-                        totalAttendance: total,
-                        presentRate: Math.round((present / total) * 100),
-                        lateRate: Math.round((late / total) * 100),
-                        averageHours: Math.round((totalMinutes / total) / 60 * 10) / 10
-                    });
-                }
-            } catch (error) {
-                console.error('Error loading report data:', error);
-            } finally {
-                setLoading(false);
-            }
-        }
+        const cached = getCached<typeof INITIAL_STATS>(CACHE_KEYS.REPORTS);
+        if (cached) setReportStats(cached);
         loadReportData();
-    }, []);
+    }, [loadReportData]);
 
     return (
         <DashboardLayout>
