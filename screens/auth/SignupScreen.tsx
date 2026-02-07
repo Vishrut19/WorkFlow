@@ -1,7 +1,7 @@
 import { AuthButton } from "@/components/ui/AuthButton";
 import { AuthInput } from "@/components/ui/AuthInput";
 import { getDeviceInfo } from "@/lib/device";
-import { supabase } from "@/lib/supabase";
+import { getNetworkErrorMessage, supabase } from "@/lib/supabase";
 import { Link, useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -172,8 +172,9 @@ export default function SignupScreen() {
       );
     } catch (err: any) {
       console.error("Signup error:", err);
-      const errorMessage = err.message || "An unexpected error occurred";
-      Alert.alert("Signup Failed", errorMessage);
+      const networkMsg = getNetworkErrorMessage(err);
+      const errorMessage = networkMsg || err.message || "An unexpected error occurred";
+      Alert.alert(networkMsg ? "Connection Error" : "Signup Failed", errorMessage);
     } finally {
       setLoading(false);
     }

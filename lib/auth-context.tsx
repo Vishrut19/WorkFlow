@@ -19,11 +19,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Get initial session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            setLoading(false);
-        });
+        // Get initial session with proper error handling
+        supabase.auth.getSession()
+            .then(({ data: { session } }) => {
+                setSession(session);
+                setLoading(false);
+            })
+            .catch((error) => {
+                console.warn('⚠️ Failed to get session (network may be unavailable):', error?.message);
+                setSession(null);
+                setLoading(false);
+            });
 
         // Listen for auth changes
         const {
@@ -38,8 +44,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const signOut = async () => {
         console.log('🚪 Signing out from auth context...');
-        await supabase.auth.signOut();
-        setSession(null); // Immediately clear the session state
+        try {
+            await supabase.auth.signOut();
+        } catch (error) {
+            console.warn('⚠️ Sign out request failed (may be offline):', error);
+        }
+        setSession(null); // Always clear the session state even if network fails
         console.log('✅ Session cleared');
     };
 

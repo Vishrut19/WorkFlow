@@ -1,13 +1,33 @@
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, LogOut, RefreshCw, User } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import MapView, { Callout, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
+import { AlertTriangle, ArrowLeft, LogOut, MapPin, RefreshCw, User } from 'lucide-react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Dimensions, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
+
+// Lazy import MapView to catch load errors
+let MapView: any = null;
+let Marker: any = null;
+let Callout: any = null;
+let PROVIDER_GOOGLE: any = null;
+let PROVIDER_DEFAULT: any = null;
+
+let mapLoadError: string | null = null;
+
+try {
+    const maps = require('react-native-maps');
+    MapView = maps.default;
+    Marker = maps.Marker;
+    Callout = maps.Callout;
+    PROVIDER_GOOGLE = maps.PROVIDER_GOOGLE;
+    PROVIDER_DEFAULT = maps.PROVIDER_DEFAULT;
+} catch (e: any) {
+    mapLoadError = e?.message || 'Failed to load map library';
+    console.error('Failed to load react-native-maps:', e);
+}
 
 export default function LiveMapScreen() {
     const { session, signOut } = useAuth();
@@ -16,6 +36,7 @@ export default function LiveMapScreen() {
     const [locations, setLocations] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [mapError, setMapError] = useState<string | null>(mapLoadError);
 
     useEffect(() => {
         loadTeamLocations();
@@ -55,8 +76,7 @@ export default function LiveMapScreen() {
             }
 
             // 3. Get latest location for each user from location_logs
-            // Since we can't easily do a "group by" latest in one simple PostgREST call with RLS,
-            // we'll fetch logs from the last 15 minutes for these users.
+            // Fetch logs from the last 15 minutes for these users.
             const fifteenMinsAgo = new Date(Date.now() - 15 * 60000).toISOString();
 
             const { data: logs, error } = await supabase
@@ -78,7 +98,7 @@ export default function LiveMapScreen() {
                     const profile = teamMembers.find(m => m.user_id === log.user_id)?.profiles;
                     latestLocations.push({
                         ...log,
-                        full_name: profile?.full_name || 'Unknown'
+                        full_name: (profile as any)?.full_name || 'Unknown'
                     });
                 }
             });
@@ -127,6 +147,9 @@ export default function LiveMapScreen() {
             longitudeDelta: 0.1,
         };
 
+    // Determine the map provider: Google Maps on Android (requires API key), Apple Maps on iOS
+    const mapProvider = Platform.OS === 'android' ? PROVIDER_GOOGLE : PROVIDER_DEFAULT;
+
     return (
         <SafeAreaView className="flex-1 bg-white dark:bg-black" edges={['top']}>
             {/* Header */}
@@ -152,39 +175,97 @@ export default function LiveMapScreen() {
             </View>
 
             <View className="flex-1">
-                <MapView
-                    provider={PROVIDER_DEFAULT}
-                    style={styles.map}
-                    initialRegion={initialRegion}
-                    showsUserLocation={true}
-                    showsMyLocationButton={true}
-                >
-                    {locations.map((loc, index) => (
-                        <Marker
-                            key={`${loc.user_id}-${index}`}
-                            coordinate={{
-                                latitude: loc.latitude,
-                                longitude: loc.longitude,
-                            }}
-                            title={loc.full_name}
-                            description={`Last seen: ${new Date(loc.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
-                        >
-                            <View className="bg-blue-600 p-2 rounded-full border-2 border-white">
-                                <User size={16} color="white" />
-                            </View>
-                            <Callout>
-                                <View className="p-2 min-w-[120px]">
-                                    <Text className="font-bold text-gray-900">{loc.full_name}</Text>
-                                    <Text className="text-xs text-gray-500 mt-1">
-                                        Updated: {new Date(loc.recorded_at).toLocaleTimeString()}
-                                    </Text>
-                                </View>
-                            </Callout>
-                        </Marker>
-                    ))}
-                </MapView>
+                {/* Map Error Fallback */}
+                {mapError || !MapView ? (
+                    <View className="flex-1 items-center justify-center px-8">
+                        <View className="bg-red-50 dark:bg-red-900/20 p-6 rounded-2xl border border-red-100 dark:border-red-800 items-center w-full">
+                            <AlertTriangle size={40} color="#EF4444" />
+                            <Text className="text-lg font-bold text-gray-900 dark:text-white mt-4 text-center">
+                                Map Unavailable
+                            </Text>
+                            <Text className="text-gray-500 dark:text-gray-400 text-sm text-center mt-2">
+                                {mapError || 'The map component could not be loaded. Please ensure the app is built with native map support.'}
+                            </Text>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setMapError(null);
+                                    loadTeamLocations();
+                                }}
+                                className="mt-4 bg-blue-600 px-6 py-3 rounded-xl"
+                            >
+                                <Text className="text-white font-medium">Retry</Text>
+                            </TouchableOpacity>
+                        </View>
 
-                {/* Legend / Refresh Info */}
+                        {/* Show team member locations as a list fallback */}
+                        {locations.length > 0 && (
+                            <View className="mt-6 w-full">
+                                <Text className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+                                    Team Locations (List View)
+                                </Text>
+                                {locations.map((loc, index) => (
+                                    <View
+                                        key={`${loc.user_id}-${index}`}
+                                        className="flex-row items-center bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-100 dark:border-gray-800 mb-2"
+                                    >
+                                        <View className="bg-blue-600 p-2 rounded-full mr-3">
+                                            <User size={14} color="white" />
+                                        </View>
+                                        <View className="flex-1">
+                                            <Text className="font-medium text-gray-900 dark:text-white">{loc.full_name}</Text>
+                                            <Text className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                                Last seen: {new Date(loc.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </Text>
+                                        </View>
+                                        <MapPin size={16} color="#9CA3AF" />
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+                    </View>
+                ) : (
+                    /* Actual Map View */
+                    <MapView
+                        provider={mapProvider}
+                        style={styles.map}
+                        initialRegion={initialRegion}
+                        showsUserLocation={true}
+                        showsMyLocationButton={true}
+                        onMapReady={() => {
+                            console.log('Map is ready');
+                        }}
+                        onError={(e: any) => {
+                            console.error('MapView error:', e?.nativeEvent?.error || e);
+                            setMapError(e?.nativeEvent?.error || 'Map failed to load. Please check your Google Maps API key configuration.');
+                        }}
+                    >
+                        {locations.map((loc, index) => (
+                            <Marker
+                                key={`${loc.user_id}-${index}`}
+                                coordinate={{
+                                    latitude: loc.latitude,
+                                    longitude: loc.longitude,
+                                }}
+                                title={loc.full_name}
+                                description={`Last seen: ${new Date(loc.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                            >
+                                <View className="bg-blue-600 p-2 rounded-full border-2 border-white">
+                                    <User size={16} color="white" />
+                                </View>
+                                <Callout>
+                                    <View className="p-2 min-w-[120px]">
+                                        <Text className="font-bold text-gray-900">{loc.full_name}</Text>
+                                        <Text className="text-xs text-gray-500 mt-1">
+                                            Updated: {new Date(loc.recorded_at).toLocaleTimeString()}
+                                        </Text>
+                                    </View>
+                                </Callout>
+                            </Marker>
+                        ))}
+                    </MapView>
+                )}
+
+                {/* Refresh Button */}
                 <TouchableOpacity
                     onPress={loadTeamLocations}
                     disabled={refreshing}
@@ -197,7 +278,7 @@ export default function LiveMapScreen() {
                     )}
                 </TouchableOpacity>
 
-                {locations.length === 0 && (
+                {!mapError && MapView && locations.length === 0 && (
                     <View className="absolute top-1/2 left-0 right-0 items-center">
                         <View className="bg-white/90 dark:bg-black/90 px-6 py-4 rounded-2xl border border-gray-100 dark:border-gray-800">
                             <Text className="text-gray-900 dark:text-white font-medium">No team members are currently online</Text>
@@ -213,6 +294,6 @@ export default function LiveMapScreen() {
 const styles = StyleSheet.create({
     map: {
         width: width,
-        height: height - 150, // Approximate header + padding
+        height: height - 150,
     },
 });

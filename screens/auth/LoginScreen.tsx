@@ -1,7 +1,7 @@
 import { AuthButton } from '@/components/ui/AuthButton';
 import { AuthInput } from '@/components/ui/AuthInput';
 import { getDeviceInfo } from '@/lib/device';
-import { supabase } from '@/lib/supabase';
+import { getNetworkErrorMessage, supabase } from '@/lib/supabase';
 import { Link, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Pressable, ScrollView, SafeAreaView, Text, useColorScheme, View } from 'react-native';
@@ -51,8 +51,10 @@ export default function LoginScreen() {
 
             router.replace('/');
         } catch (err: any) {
-            Alert.alert('Login Failed', err.message);
-            setError(err.message);
+            const networkMsg = getNetworkErrorMessage(err);
+            const message = networkMsg || err.message || 'An unexpected error occurred';
+            Alert.alert(networkMsg ? 'Connection Error' : 'Login Failed', message);
+            setError(message);
         } finally {
             setLoading(false);
         }
