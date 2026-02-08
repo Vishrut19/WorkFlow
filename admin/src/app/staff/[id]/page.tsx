@@ -275,7 +275,7 @@ export default function StaffDetailPage() {
             <TabsContent value="attendance" className="mt-4">
               {loading ? (
                 <div className="flex justify-center py-8">
-                  <Loader size="md" />
+                  <Loader size="default" />
                 </div>
               ) : attendance.length === 0 ? (
                 <div className="flex flex-col items-center py-10 rounded-xl border border-dashed border-border bg-muted/30">
@@ -337,7 +337,7 @@ export default function StaffDetailPage() {
             <TabsContent value="location" className="mt-4">
               {loading ? (
                 <div className="flex justify-center py-8">
-                  <Loader size="md" />
+                  <Loader size="default" />
                 </div>
               ) : !hasAnyLocation ? (
                 <div className="flex flex-col items-center py-10 rounded-xl border border-dashed border-border bg-muted/30">
