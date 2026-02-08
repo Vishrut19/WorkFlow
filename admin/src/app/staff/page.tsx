@@ -24,7 +24,8 @@ import {
 } from "@/components/ui/table";
 import { getCached, setCached, CACHE_KEYS } from "@/lib/data-cache";
 import { supabase } from "@/lib/supabase";
-import { Mail, MoreVertical, Search, UserCheck, Users, UserX } from "lucide-react";
+import { Mail, MoreVertical, Search, UserCheck, UserCircle, Users, UserX } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Role = "staff" | "manager" | "admin";
@@ -195,7 +196,10 @@ export default function StaffManagement() {
                     className="border-b border-border/60 transition-colors hover:bg-muted/40"
                   >
                     <TableCell className="px-3 py-3">
-                      <div className="flex items-center gap-4">
+                      <Link
+                        href={`/staff/${user.id}`}
+                        className="flex items-center gap-4 hover:opacity-90 transition-opacity"
+                      >
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 font-semibold text-primary ring-1 ring-primary/10">
                           {user.full_name?.charAt(0).toUpperCase()}
                         </div>
@@ -208,7 +212,7 @@ export default function StaffManagement() {
                             {user.email}
                           </div>
                         </div>
-                      </div>
+                      </Link>
                     </TableCell>
                     <TableCell className="px-3 py-3 text-center">
                       {getRoleBadge(user.role)}
@@ -267,6 +271,16 @@ export default function StaffManagement() {
                             <DropdownMenuLabel className="text-muted-foreground text-xs uppercase tracking-widest mt-1">
                               Actions
                             </DropdownMenuLabel>
+                            <DropdownMenuSeparator className="bg-border" />
+                            <DropdownMenuItem asChild>
+                              <Link
+                                href={`/staff/${user.id}`}
+                                className="flex cursor-pointer items-center focus:bg-accent"
+                              >
+                                <UserCircle size={14} className="mr-2" />
+                                View details
+                              </Link>
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator className="bg-border" />
                             <DropdownMenuItem
                               onClick={() =>
