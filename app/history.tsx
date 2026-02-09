@@ -1,4 +1,5 @@
 import { useAuth } from '@/lib/auth-context';
+import { formatDisplayDate } from '@/lib/date-utils';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
@@ -95,15 +96,7 @@ export default function AttendanceHistoryScreen() {
         );
     };
 
-    const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
-        return date.toLocaleDateString(undefined, {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-        });
-    };
+    const formatDate = (dateString: string) => formatDisplayDate(dateString);
 
     const formatTime = (timeString: string) => {
         const date = new Date(timeString);

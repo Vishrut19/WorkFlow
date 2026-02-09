@@ -3,6 +3,7 @@
  * Shows a simplified route (polyline) with start (check-in) and end (check-out) markers.
  * Matches common pattern in employee tracking apps: "View route" from day's data.
  */
+import { formatDisplayDate } from "@/lib/date-utils";
 import { supabase } from "@/lib/supabase";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft, MapPin } from "lucide-react-native";
@@ -98,11 +99,7 @@ function formatDateLabel(dateStr: string): string {
   yesterday.setDate(yesterday.getDate() - 1);
   const y = yesterday.toISOString().split("T")[0];
   if (dateStr === y) return "Yesterday";
-  return d.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
+  return formatDisplayDate(d);
 }
 
 export default function MemberDayMapScreen() {

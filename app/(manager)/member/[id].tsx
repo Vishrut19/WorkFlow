@@ -1,4 +1,5 @@
 import { useAuth } from "@/lib/auth-context";
+import { formatDisplayDate } from "@/lib/date-utils";
 import { supabase } from "@/lib/supabase";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Location from "expo-location";
@@ -31,12 +32,7 @@ function formatDateLabel(dateStr: string): string {
   yesterday.setDate(yesterday.getDate() - 1);
   const y = yesterday.toISOString().split("T")[0];
   if (dateStr === y) return "Yesterday";
-  return d.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return formatDisplayDate(d);
 }
 
 function getMinMaxDates(): { min: string; max: string } {
@@ -401,11 +397,7 @@ export default function MemberDetailScreen() {
     <View className="bg-white dark:bg-gray-900 p-4 rounded-2xl mb-3 border border-gray-100 dark:border-gray-800">
       <View className="flex-row justify-between items-center mb-2">
         <Text className="font-bold text-gray-900 dark:text-white">
-          {new Date(item.attendance_date).toLocaleDateString(undefined, {
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-          })}
+          {formatDisplayDate(item.attendance_date)}
         </Text>
         <View className="px-2 py-1 bg-green-50 dark:bg-green-900/20 rounded">
           <Text className="text-xs text-green-700 dark:text-green-300 font-bold uppercase">

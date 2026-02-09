@@ -1,6 +1,7 @@
 import { ActionCard } from '@/components/ActionCard';
 import { useLocationTracking } from '@/hooks/useLocationTracking';
 import { useAuth } from '@/lib/auth-context';
+import { formatDisplayDate } from '@/lib/date-utils';
 import { supabase } from '@/lib/supabase';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
@@ -565,7 +566,7 @@ export default function HomeScreen() {
                         Welcome, {profile?.full_name?.split(' ')[0] || 'User'}
                     </Text>
                     <Text className="text-gray-500 dark:text-gray-400">
-                        {new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                        {formatDisplayDate(new Date())}
                     </Text>
                 </View>
 
