@@ -5,6 +5,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -22,19 +30,23 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useAuth } from "@/context/AuthContext";
 import { getCached, setCached, CACHE_KEYS } from "@/lib/data-cache";
 import { supabase } from "@/lib/supabase";
-import { Mail, MoreVertical, Search, UserCheck, UserCircle, Users, UserX } from "lucide-react";
+import { Mail, MoreVertical, Search, Trash2, UserCheck, UserCircle, Users, UserX } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Role = "staff" | "manager" | "admin";
 
 export default function StaffManagement() {
+  const { user: currentUser, session } = useAuth();
   const [users, setUsers] = useState<any[]>(() => getCached<any[]>(CACHE_KEYS.STAFF_LIST) ?? []);
   const [loading, setLoading] = useState(!getCached<any[]>(CACHE_KEYS.STAFF_LIST));
   const [searchQuery, setSearchQuery] = useState("");
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; fullName: string } | null>(null);
 
   const loadUsers = useCallback(async () => {
     try {
@@ -96,6 +108,56 @@ export default function StaffManagement() {
     }
   }
 
+  function openDeleteModal(userId: string, fullName: string) {
+    if (currentUser?.id === userId) {
+      alert("You cannot delete your own account.");
+      return;
+    }
+    setPendingDelete({ id: userId, fullName: fullName || "Unknown" });
+    setDeleteModalOpen(true);
+  }
+
+  function closeDeleteModal() {
+    setDeleteModalOpen(false);
+    setPendingDelete(null);
+  }
+
+  async function confirmDeleteUser() {
+    if (!pendingDelete) return;
+    const userId = pendingDelete.id;
+    const token = session?.access_token;
+    if (!token) {
+      alert("Session expired. Please sign in again.");
+      return;
+    }
+    setActionLoadingId(userId);
+    try {
+      const res = await fetch("/api/staff/delete-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ userId }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        alert(data?.error ?? "Failed to delete user. Try again or check permissions.");
+        return;
+      }
+      const nextUsers = users.filter((u) => u.id !== userId);
+      setUsers(nextUsers);
+      setCached(CACHE_KEYS.STAFF_LIST, nextUsers, 90 * 1000);
+      closeDeleteModal();
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      alert("Failed to delete user. Try again or check your connection.");
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
+
   const filteredUsers = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return users;
@@ -105,6 +167,11 @@ export default function StaffManagement() {
         u.email?.toLowerCase().includes(q)
     );
   }, [users, searchQuery]);
+
+  const isAdmin = useMemo(
+    () => currentUser && users.some((u) => u.id === currentUser.id && u.role === "admin"),
+    [currentUser, users]
+  );
 
   const getRoleBadge = (role: string) => {
     switch (role) {
@@ -140,6 +207,31 @@ export default function StaffManagement() {
 
   return (
     <DashboardLayout>
+      <Dialog open={deleteModalOpen} onOpenChange={(open) => !open && closeDeleteModal()}>
+        <DialogContent className="sm:max-w-md" showCloseButton={true}>
+          <DialogHeader>
+            <DialogTitle className="text-destructive">Delete user</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>{pendingDelete?.fullName ?? "this user"}</strong>? This will
+              remove their profile and all related data (attendance, location history, team membership, devices). This
+              cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-3 sm:gap-4">
+            <Button variant="outline" onClick={closeDeleteModal} disabled={!!actionLoadingId}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteUser}
+              disabled={!!actionLoadingId || !pendingDelete}
+            >
+              {actionLoadingId === pendingDelete?.id ? "Deleting…" : "Delete user"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 px-1">
         <div>
           <h2 className="text-4xl font-extrabold tracking-tight text-foreground flex items-center">
@@ -300,6 +392,19 @@ export default function StaffManagement() {
                                 </div>
                               )}
                             </DropdownMenuItem>
+                            {isAdmin && (
+                              <>
+                                <DropdownMenuSeparator className="bg-border" />
+                                <DropdownMenuItem
+                                  onClick={() => openDeleteModal(user.id, user.full_name)}
+                                  disabled={actionLoadingId === user.id || currentUser?.id === user.id}
+                                  className="cursor-pointer text-destructive hover:bg-destructive/10 focus:bg-destructive/10 disabled:opacity-50 disabled:pointer-events-none"
+                                >
+                                  <Trash2 size={14} className="mr-2" />
+                                  Delete user
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
