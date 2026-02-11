@@ -124,7 +124,7 @@ TaskManager.defineTask(LOCATION_TRACKING_TASK, async ({ data, error }: any) => {
 
 /**
  * Start background location tracking
- * Records when location changes (every ~100m); when stationary, at most one update every 20 min.
+ * Records when location changes (every ~100m); when stationary, at most one update every 10 min.
  */
 export async function startLocationTracking(): Promise<boolean> {
   try {
@@ -161,7 +161,7 @@ export async function startLocationTracking(): Promise<boolean> {
     // Start location tracking — record only when location changes (after moving ~100m)
     await Location.startLocationUpdatesAsync(LOCATION_TRACKING_TASK, {
       accuracy: Location.Accuracy.Balanced,
-      timeInterval: 20 * 60 * 1000, // Max 20 min between updates when stationary
+      timeInterval: 10 * 60 * 1000, // Max 10 min between updates when stationary
       distanceInterval: MIN_DISTANCE_METERS, // Fire when user has moved this many meters
       foregroundService: {
         notificationTitle: "WorkFlow - Location Tracking",
@@ -177,7 +177,7 @@ export async function startLocationTracking(): Promise<boolean> {
     console.log(
       "📍 Records when location changes (every ~" +
         MIN_DISTANCE_METERS +
-        "m), max every 20 min when stationary",
+        "m), max every 10 min when stationary",
     );
     console.log("🔋 Accuracy: Balanced (battery-friendly)");
     console.log("📱 Foreground service: Active");
